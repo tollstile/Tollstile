@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS ${charges} (
   settlement_reference text,
   settlement_details   jsonb,
   refund_reference     text,
+  request_hash         text,
   version              integer     NOT NULL CHECK (version >= 1),
   created_at           timestamptz NOT NULL,
   updated_at           timestamptz NOT NULL,

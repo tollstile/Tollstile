@@ -71,6 +71,21 @@ function readMeta(context: Context): JsonObject | 'absent' | 'malformed' {
   return isObject(value) ? value : 'malformed';
 }
 
+/** x402 extension through which a client names a payment for idempotency (specs/extensions/payment_identifier.md). */
+export const PAYMENT_IDENTIFIER_EXTENSION = 'payment-identifier';
+const PAYMENT_ID = /^[a-zA-Z0-9_-]{16,128}$/;
+
+export type PaymentIdentifier = { readonly status: 'none' } | { readonly status: 'invalid' } | { readonly status: 'present'; readonly id: string };
+
+/** The client's `payment-identifier` id, if it sent one. */
+export function paymentIdentifier(paymentPayload: JsonObject): PaymentIdentifier {
+  const extensions = objectField(paymentPayload, 'extensions');
+  const extension = extensions === undefined ? undefined : objectField(extensions, PAYMENT_IDENTIFIER_EXTENSION);
+  const info = extension === undefined ? undefined : objectField(extension, 'info');
+  if (info === undefined || info.id === undefined) return { status: 'none' };
+  return typeof info.id === 'string' && PAYMENT_ID.test(info.id) ? { status: 'present', id: info.id } : { status: 'invalid' };
+}
+
 export function parseEip3009(payload: JsonObject): Eip3009Authorization | undefined {
   const authorization = objectField(payload, 'authorization');
   if (authorization === undefined || textField(payload, 'signature') === undefined) return undefined;

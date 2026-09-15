@@ -131,7 +131,7 @@ describe('mppStripe payment', () => {
     const gate = toll.price('$1.00');
     const result = await get(gate, { authorization: authorization(await challengeFor(gate), { spt: 'spt_declined' }) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'payment_rejected' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'payment_rejected' } } });
     expect(parseChallenges(result.headers)).toHaveLength(1);
     expect(charges()).toEqual(['failed/pending']);
   });
@@ -159,7 +159,7 @@ describe('mppStripe verification failures', () => {
       { ...challenge, expires: '2099-01-01T00:00:00Z' },
     ]) {
       const result = await get(gate, { authorization: authorization(tampered, { spt: 'spt_ok' }) });
-      expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'challenge_invalid' } });
+      expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'challenge_invalid' } } });
     }
     expect(stripe.requests).toHaveLength(0);
   });
@@ -171,7 +171,7 @@ describe('mppStripe verification failures', () => {
     clock.advance(6 * 60_000);
     const result = await get(gate, { authorization: authorization(challenge, { spt: 'spt_ok' }) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'challenge_expired' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'challenge_expired' } } });
   });
 
   it('rejects a challenge issued for another resource', async () => {
@@ -179,7 +179,7 @@ describe('mppStripe verification failures', () => {
     const challenge = await challengeFor(toll.price('$1.00'), '/cheap');
     const result = await get(toll.price('$5.00'), { path: '/expensive', authorization: authorization(challenge, { spt: 'spt_ok' }) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'quote_invalid' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'quote_invalid' } } });
   });
 
   it('rejects a correctly bound challenge whose terms are not this route’s price', async () => {
@@ -195,17 +195,45 @@ describe('mppStripe verification failures', () => {
     const wire = { ...issued, request: Buffer.from(JSON.stringify(issued.request)).toString('base64url'), opaque: undefined };
     const result = await get(toll.price('$5.00'), { authorization: authorization(JSON.parse(JSON.stringify(wire)) as Record<string, string>, { spt: 'spt_ok' }) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'challenge_terms_mismatch' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'challenge_terms_mismatch' } } });
   });
 
-  it('rejects a replayed credential without a second PaymentIntent', async () => {
+  it('answers a replayed credential with the recorded payment, without a second PaymentIntent', async () => {
     const { toll, stripe } = stripeSetup();
     const gate = toll.price('$1.00');
     const credential = authorization(await challengeFor(gate), { spt: 'spt_ok' });
     await get(gate, { authorization: credential });
     const replay = await get(gate, { authorization: credential });
 
-    expect(replay).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'proof_already_used' } });
+    // The challenge id is the idempotency key, so the retry finds the settled charge.
+    expect(replay).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' }, settlement: 'pi_1' } });
+    expect(stripe.intents.size).toBe(1);
+  });
+
+  it('answers a retry of a paid request from the ledger after its challenge expired', async () => {
+    const { toll, stripe, clock } = stripeSetup();
+    const gate = toll.price('$1.00');
+    const credential = authorization(await challengeFor(gate), { spt: 'spt_ok' });
+    await get(gate, { authorization: credential });
+    clock.advance(6 * 60_000);
+
+    // Without the proof id this would be a 402 asking the client to pay a second time.
+    expect(await get(gate, { authorization: credential })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'proof_already_used' } } });
+    expect(stripe.intents.size).toBe(1);
+  });
+
+  it('prefers the client’s Idempotency-Key over the challenge id', async () => {
+    const { toll, stripe } = stripeSetup();
+    const gate = toll.price('$1.00');
+    const credential = authorization(await challengeFor(gate), { spt: 'spt_ok' });
+    const withKey = (key: string) =>
+      gate.enter(httpContext(new Request('https://api.example.com/report', { headers: { authorization: credential, 'idempotency-key': key } })));
+    const first = await withKey('client-key-1');
+    if (first.kind === 'admitted') await first.pass.complete('succeeded');
+    const second = await withKey('client-key-2');
+
+    expect(first.kind).toBe('admitted');
+    expect(second).toMatchObject({ kind: 'denied', denial: { status: 409, error: { code: 'proof_already_used' } } });
     expect(stripe.intents.size).toBe(1);
   });
 
@@ -214,8 +242,8 @@ describe('mppStripe verification failures', () => {
     const gate = toll.price('$1.00');
     const challenge = await challengeFor(gate);
 
-    expect((await get(gate, { authorization: authorization(challenge, { spt: 'pm_card' }) })).body.reason).toBe('invalid_payload');
-    expect((await get(gate, { authorization: 'Payment !!!' })).body.reason).toBe('malformed_credential');
+    expect((await get(gate, { authorization: authorization(challenge, { spt: 'pm_card' }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'invalid_payload' });
+    expect((await get(gate, { authorization: 'Payment !!!' })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'malformed_credential' });
   });
 
   it('ignores credentials for other methods and other authorization schemes', async () => {
@@ -223,8 +251,8 @@ describe('mppStripe verification failures', () => {
     const gate = toll.price('$1.00');
     const challenge = await challengeFor(gate);
 
-    expect((await get(gate, { authorization: authorization({ ...challenge, method: 'tempo' }, { spt: 'spt_ok' }) })).body).toMatchObject({ error: 'payment_required' });
-    expect((await get(gate, { authorization: 'Bearer abc' })).body).toMatchObject({ error: 'payment_required' });
+    expect((await get(gate, { authorization: authorization({ ...challenge, method: 'tempo' }, { spt: 'spt_ok' }) })).body).toMatchObject({ error: { code: 'payment_required' } });
+    expect((await get(gate, { authorization: 'Bearer abc' })).body).toMatchObject({ error: { code: 'payment_required' } });
   });
 
   it('verifies challenges issued under a previous secret during rotation', async () => {
@@ -239,7 +267,7 @@ describe('mppStripe verification failures', () => {
     expect(result.status).toBe(200);
 
     const retired = setup(mppStripe({ ...options, secret: 'a-brand-new-secret-0123456789abcdef' }), clock);
-    expect((await get(retired.toll.price('$1.00'), { authorization: authorization(challenge, { spt: 'spt_ok' }) })).body.reason).toBe('challenge_invalid');
+    expect((await get(retired.toll.price('$1.00'), { authorization: authorization(challenge, { spt: 'spt_ok' }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'challenge_invalid' });
   });
 
   it('refuses short secrets and non-ASCII realms at construction', () => {

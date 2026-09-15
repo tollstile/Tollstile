@@ -18,7 +18,7 @@ describe('completion', () => {
     rail.simulate({ settle: 'reject' });
     const result = await call(toll.price('$0.01'), { payment: 'test proof=p1' });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 1, body: { reason: 'settlement_rejected', price: '$0.01' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 1, body: { error: { code: 'settlement_rejected' }, price: '$0.01' } });
     expect(typeof result.body.quote).toBe('string');
     expect(charges()).toEqual(['failed/completed']);
   });
@@ -30,7 +30,7 @@ describe('completion', () => {
     const quoted = await call(gate, { body: '{"a":1}' });
     const result = await call(gate, { body: '{"a":1}', payment: `test quote=${String(quoted.body.quote)}`, readBody: () => undefined });
 
-    expect(result).toMatchObject({ status: 402, body: { reason: 'settlement_rejected' } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'settlement_rejected' } } });
     expect(result.body.quote).toBeUndefined();
   });
 
@@ -81,7 +81,7 @@ describe('challenges', () => {
     rail.simulate({ challenge: 'unavailable' });
     const result = await call(toll.price('$0.01'));
 
-    expect(result).toMatchObject({ status: 503, body: { error: 'payment_unavailable' } });
+    expect(result).toMatchObject({ status: 503, body: { error: { code: 'payment_unavailable' } } });
     expect(errors()[0]).toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
   });
 });
@@ -94,7 +94,7 @@ describe('requirements', () => {
     const gate = toll.price('$0.01', { require: [requirement(() => Promise.reject(unavailable()))] });
 
     const result = await call(gate, { payment: 'test' });
-    expect(result).toMatchObject({ status: 503, handlerRuns: 0, body: { error: 'requirement_unavailable', requirement: 'agent' } });
+    expect(result).toMatchObject({ status: 503, handlerRuns: 0, body: { error: { code: 'requirement_unavailable' }, requirement: 'agent' } });
     expect(errors()).toHaveLength(1);
   });
 
@@ -110,7 +110,7 @@ describe('requirements', () => {
       ],
     });
 
-    expect(await call(gate, { payment: 'test' })).toMatchObject({ status: 503, body: { reason: 'directory_unavailable' } });
+    expect(await call(gate, { payment: 'test' })).toMatchObject({ status: 503, body: { error: { code: 'requirement_unavailable', detail: 'directory_unavailable' } } });
     expect(signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -212,6 +212,7 @@ describe('memory ledger', () => {
     flow: 'authorization' as const,
     amount: { currency, micros },
     fulfillment: 'running' as const,
+    requestHash: null,
     at: new Date(1),
   });
 

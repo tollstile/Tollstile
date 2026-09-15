@@ -45,9 +45,10 @@ async function setup(options: { readonly rail?: Partial<KyapayOptions>; readonly
   });
   const token = (overrides: Record<string, unknown> = {}, header: Record<string, unknown> = {}) => issuer.sign(claims(overrides), header);
 
-  const call = async (gate: Gate<readonly Rail[]>, input: { readonly token?: string; readonly handler?: (payment: Payment<readonly Rail[]>) => Promise<'succeeded' | 'failed'> | 'succeeded' | 'failed' } = {}): Promise<Result> => {
+  const call = async (gate: Gate<readonly Rail[]>, input: { readonly token?: string; readonly idempotencyKey?: string; readonly handler?: (payment: Payment<readonly Rail[]>) => Promise<'succeeded' | 'failed'> | 'succeeded' | 'failed' } = {}): Promise<Result> => {
     const headers = new Headers();
     if (input.token !== undefined) headers.set('KYAPay-Token', input.token);
+    if (input.idempotencyKey !== undefined) headers.set('Idempotency-Key', input.idempotencyKey);
     const entry = await gate.enter(httpContext(new Request('https://seller.example/report', { headers })));
     if (entry.kind === 'denied') {
       const response = toResponse(entry.denial);
@@ -73,7 +74,7 @@ describe('challenge', () => {
 
     expect(result.status).toBe(402);
     expect(result.body).toMatchObject({
-      error: 'payment_required',
+      error: { code: 'payment_required', retryable: true, action: 'pay', detail: null },
       accepts: [
         {
           rail: 'kyapay',
@@ -122,12 +123,18 @@ describe('verification', () => {
     expect(skyfire.records).toMatchObject([{ tokenId: jti, value: '0.01' }]);
     expect(ledger.authorizations()[0]).toMatchObject({
       kind: 'reusable',
-      payer: 'buyer-1',
+      payer: `${SANDBOX_ISSUER}#buyer-1`,
       limit: { currency: 'USD', micros: 50_000n },
       consumed: { micros: 10_000n },
       data: { tokenId: jti },
     });
     expect(ledger.charges()[0]?.settlement).toMatchObject({ details: { amountCharged: '0.01', remainingBalance: '0.04' } });
+  });
+
+  it('names the payer by issuer and subject, with the subject exactly as issued', async () => {
+    const { toll, call, token, ledger } = await setup();
+    expect((await call(toll.price('$0.01'), { token: await token({ sub: 'Buyer-7fA2' }) })).status).toBe(200);
+    expect(ledger.charges()[0]?.payer).toBe(`${SANDBOX_ISSUER}#Buyer-7fA2`);
   });
 
   it('accepts the token over MCP and returns the receipt in meta', async () => {
@@ -144,7 +151,7 @@ describe('verification', () => {
     const forged = base64url(new TextEncoder().encode(JSON.stringify(claims({ amt: '100', val: '100000000' }))));
     const result = await call(toll.price('$0.01'), { token: `${header ?? ''}.${forged}.${signature ?? ''}` });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'bad_signature' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'bad_signature' } } });
     expect(posts()).toEqual([]);
     expect(ledger.authorizations()).toEqual([]);
   });
@@ -153,7 +160,7 @@ describe('verification', () => {
     const { toll, call, claims } = await setup();
     const impostor = await createIssuer(SANDBOX_ISSUER);
     const result = await call(toll.price('$0.01'), { token: await impostor.sign(claims()) });
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'bad_signature' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'bad_signature' } } });
   });
 
   it('rejects a token from an untrusted issuer without fetching anything', async () => {
@@ -161,7 +168,7 @@ describe('verification', () => {
     const stranger = await createIssuer('https://issuer.example');
     const result = await call(toll.price('$0.01'), { token: await stranger.sign(claims({ iss: 'https://issuer.example' })) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'untrusted_issuer' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'untrusted_issuer' } } });
     expect(skyfire.requests).toEqual([]);
   });
 
@@ -172,7 +179,7 @@ describe('verification', () => {
   ])('rejects alg %s without fetching keys', async (alg, reason) => {
     const { toll, call, token, skyfire } = await setup();
     const result = await call(toll.price('$0.01'), { token: await token({}, { alg }) });
-    expect(result).toMatchObject({ status: 402, body: { reason } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'proof_invalid', detail: reason } } });
     expect(skyfire.requests).toEqual([]);
   });
 
@@ -200,7 +207,7 @@ describe('verification', () => {
       expect(result.status).toBe(200);
       return;
     }
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: reason } } });
     expect(ledger.authorizations()).toEqual([]);
   });
 
@@ -211,17 +218,17 @@ describe('verification', () => {
     const future = await token({ iat: nowSeconds() + 120, exp: nowSeconds() + 600 });
     const longLived = await token({ exp: nowSeconds() + 2 * 86_400 });
 
-    expect((await call(gate, { token: future })).body).toMatchObject({ reason: 'not_yet_valid' });
-    expect((await call(gate, { token: longLived })).body).toMatchObject({ reason: 'lifetime_not_accepted' });
+    expect((await call(gate, { token: future })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'not_yet_valid' } });
+    expect((await call(gate, { token: longLived })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'lifetime_not_accepted' } });
     clock.advance(95_000);
-    expect(await call(gate, { token: shortLived })).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'expired' } });
+    expect(await call(gate, { token: shortLived })).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'expired' } } });
   });
 
   it('refuses sender-constrained tokens unless a request signature check is configured', async () => {
     const cnf = { jwk: { kty: 'OKP', crv: 'Ed25519', x: 'abc' } };
     const refused = await setup();
     expect((await refused.call(refused.toll.price('$0.01'), { token: await refused.token({ cnf }) })).body).toMatchObject({
-      reason: 'sender_constrained_token_unsupported',
+      error: { code: 'proof_invalid', detail: 'sender_constrained_token_unsupported' },
     });
 
     const seen: unknown[] = [];
@@ -235,24 +242,24 @@ describe('verification', () => {
     });
     const gate = checked.toll.price('$0.01');
     expect((await checked.call(gate, { token: await checked.token({ cnf }) })).status).toBe(200);
-    expect((await checked.call(gate, { token: await checked.token({ cnf }) })).body).toMatchObject({ reason: 'request_signature_invalid' });
+    expect((await checked.call(gate, { token: await checked.token({ cnf }) })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'request_signature_invalid' } });
     expect(seen[0]).toEqual(cnf);
   });
 
   it('refuses token types the merchant did not accept', async () => {
     const { toll, call, token } = await setup({ rail: { tokenTypes: ['pay'] } });
-    expect((await call(toll.price('$0.01'), { token: await token() })).body).toMatchObject({ reason: 'token_type_not_accepted' });
+    expect((await call(toll.price('$0.01'), { token: await token() })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'token_type_not_accepted' } });
     expect((await call(toll.price('$0.01'), { token: await token({}, { typ: 'pay+JWT' }) })).status).toBe(200);
   });
 
   it('ignores kya identity tokens and refuses more than one payment token', async () => {
     const { toll, call, token } = await setup();
     const identity = await token({}, { typ: 'kya+JWT' });
-    expect(await call(toll.price('$0.01'), { token: identity })).toMatchObject({ status: 402, body: { error: 'payment_required' } });
+    expect(await call(toll.price('$0.01'), { token: identity })).toMatchObject({ status: 402, body: { error: { code: 'payment_required' } } });
 
     const both = `${identity}, ${await token()}`;
     expect((await call(toll.price('$0.01'), { token: both })).status).toBe(200);
-    expect((await call(toll.price('$0.01'), { token: `${await token()},${await token()}` })).body).toMatchObject({ reason: 'multiple_payment_tokens' });
+    expect((await call(toll.price('$0.01'), { token: `${await token()},${await token()}` })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'multiple_payment_tokens' } });
   });
 
   it('answers 503 without running the handler when the issuer keys cannot be fetched', async () => {
@@ -284,7 +291,7 @@ describe('reusable authorization', () => {
 
     expect((await call(gate, { token: hold })).status).toBe(200);
     expect((await call(gate, { token: hold })).status).toBe(200);
-    expect(await call(gate, { token: hold })).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'insufficient_authorization' } });
+    expect(await call(gate, { token: hold })).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'insufficient_authorization' } } });
 
     expect(skyfire.records.map((entry) => entry.value)).toEqual(['0.02', '0.02']);
     expect(ledger.authorizations()).toHaveLength(1);
@@ -300,6 +307,21 @@ describe('reusable authorization', () => {
     expect(results.map((result) => result.status)).toEqual([200, 200, 200]);
     expect(charges()).toEqual(['settled/completed', 'settled/completed', 'settled/completed']);
     expect(skyfire.records).toHaveLength(3);
+  });
+
+  // A token is reusable and KYAPay has no per-request payment identifier, so only the client's key tells a retry apart.
+  it('charges a retry with the same Idempotency-Key once, and a retry without one again', async () => {
+    const { toll, call, token, skyfire } = await setup();
+    const gate = toll.price('$0.01');
+    const hold = await token();
+
+    expect((await call(gate, { token: hold, idempotencyKey: 'retry-1' })).status).toBe(200);
+    expect(await call(gate, { token: hold, idempotencyKey: 'retry-1' })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect(await call(gate, { token: await token(), idempotencyKey: 'retry-1' })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect(skyfire.records).toHaveLength(1);
+
+    expect((await call(gate, { token: hold })).status).toBe(200);
+    expect(skyfire.records).toHaveLength(2);
   });
 
   it('charges the fulfilled amount on a variable route', async () => {
@@ -327,11 +349,36 @@ describe('reusable authorization', () => {
     expect(posts()).toHaveLength(1);
   });
 
+  it('answers a keyed retry from the ledger after the token expired, instead of asking to pay again', async () => {
+    const { toll, call, token, clock, nowSeconds, skyfire, issuer, claims } = await setup();
+    const gate = toll.price('$0.01');
+    const hold = await token({ exp: nowSeconds() + 60 });
+    expect((await call(gate, { token: hold, idempotencyKey: 'once' })).status).toBe(200);
+
+    clock.advance(95_000);
+    expect(await call(gate, { token: hold, idempotencyKey: 'once' })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect((await call(gate, { token: hold, idempotencyKey: 'another' })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'expired' } });
+    const [header, payload] = hold.split('.');
+    const forged = `${header ?? ''}.${payload ?? ''}.${(await issuer.sign(claims())).split('.')[2] ?? ''}`;
+    expect((await call(gate, { token: forged, idempotencyKey: 'once' })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'bad_signature' } });
+    expect(skyfire.records).toHaveLength(1);
+  });
+
+  it('does not answer a keyed retry of an expired sender-constrained token from the ledger', async () => {
+    const { toll, call, token, clock, nowSeconds } = await setup({ rail: { verifyRequestSignature: () => Promise.resolve(true) } });
+    const gate = toll.price('$0.01');
+    const hold = await token({ exp: nowSeconds() + 60, cnf: { jwk: { kty: 'OKP', crv: 'Ed25519', x: 'abc' } } });
+    expect((await call(gate, { token: hold, idempotencyKey: 'once' })).status).toBe(200);
+
+    clock.advance(95_000);
+    expect((await call(gate, { token: hold, idempotencyKey: 'once' })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'expired' } });
+  });
+
   it('refuses new requests once the token expires', async () => {
     const { toll, call, token, clock, nowSeconds } = await setup();
     const hold = await token({ exp: nowSeconds() + 60 });
     clock.advance(61_000);
-    expect((await call(toll.price('$0.01'), { token: hold })).body).toMatchObject({ reason: 'authorization_expired' });
+    expect((await call(toll.price('$0.01'), { token: hold })).body).toMatchObject({ error: { code: 'authorization_expired' } });
   });
 });
 
@@ -448,6 +495,7 @@ describe('charge list mapping', () => {
     pending: 'settle',
     settlement: null,
     refundReference: null,
+    requestHash: null,
     createdAt: created,
     updatedAt: created,
   });
@@ -551,6 +599,17 @@ describe('charge list mapping', () => {
     const result = await rail.settle(authorization(jwt, tokenId, { consumed: 0n, reserved: 10_000n }), { ...charge(10_000n), payment: 'settling' }, operation);
     expect(result).toMatchObject({ status: 'settled', details: { evidence: 'charge_list' } });
     expect(posts()).toEqual([]);
+  });
+
+  it('answers a repeated settle of a recorded charge with its settlement, without asking Skyfire', async () => {
+    const { rail, skyfire, tokenId, jwt } = await lookupSetup();
+    skyfire.record(tokenId, '0.01', later(10));
+    const settlement = { reference: `${tokenId}:chg_1`, details: { tokenId, amountCharged: '0.01', remainingBalance: '0.04' } };
+    const recorded = { ...charge(10_000n), payment: 'settled', pending: null, settlement } as const;
+    const result = await rail.settle(authorization(jwt, tokenId, { consumed: 10_000n, reserved: 0n }), recorded, operation);
+
+    expect(result).toEqual({ status: 'settled', ...settlement });
+    expect(skyfire.requests.filter((request) => !request.includes('jwks'))).toEqual([]);
   });
 
   it('charges when another in-flight charge could explain what is listed', async () => {

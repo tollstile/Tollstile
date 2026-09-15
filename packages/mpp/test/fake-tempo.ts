@@ -74,6 +74,8 @@ export function fakeTempo() {
   const channels = new Map<string, { settled: bigint; deposit: bigint; closeRequestedAt: bigint }>();
   const broadcasts: string[] = [];
   const modes: { send: TempoMode; read: 'ok' | 'down' } = { send: 'ok', read: 'ok' };
+  /** A fault for the next broadcast only. */
+  let nextSend: TempoMode | undefined;
 
   /** Includes a signed transaction: what the network does when anyone broadcasts it. */
   function include(raw: string, success = true): string {
@@ -107,10 +109,12 @@ export function fakeTempo() {
       case 'eth_sendRawTransactionSync': {
         const raw = String(body.params[0]);
         broadcasts.push(raw);
-        if (modes.send === 'down') throw new TypeError('fetch failed');
-        if (modes.send === 'refuse') return error(-32000, 'nonce too low');
-        const hash = include(raw, modes.send !== 'revert');
-        if (modes.send === 'timeout-after-effect') throw new DOMException('The operation timed out.', 'TimeoutError');
+        const send = nextSend ?? modes.send;
+        nextSend = undefined;
+        if (send === 'down') throw new TypeError('fetch failed');
+        if (send === 'refuse') return error(-32000, 'nonce too low');
+        const hash = include(raw, send !== 'revert');
+        if (send === 'timeout-after-effect') throw new DOMException('The operation timed out.', 'TimeoutError');
         return answer(receipts.get(hash));
       }
       case 'eth_getTransactionReceipt':
@@ -135,6 +139,11 @@ export function fakeTempo() {
     broadcasts,
     channels,
     include,
+    failNextSend(mode: TempoMode) {
+      nextSend = mode;
+    },
+    /** Successful transfers the network included. */
+    transfers: () => [...receipts.values()].filter((receipt) => receipt.status === '0x1').length,
     simulate(next: Partial<typeof modes>) {
       Object.assign(modes, { send: 'ok', read: 'ok' }, next);
     },

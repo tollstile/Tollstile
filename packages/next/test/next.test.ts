@@ -126,8 +126,20 @@ describe('@tollstile/next', () => {
     const response = await handler(new Request('http://localhost/weather', { headers: { payment: 'test proof=r1' } }), routeContext({}));
 
     expect(response.status).toBe(402);
-    expect(await response.json()).toMatchObject({ reason: 'settlement_rejected' });
+    expect(await response.json()).toMatchObject({ error: { code: 'settlement_rejected' } });
     expect(response.headers.get('payment-receipt')).toBeNull();
+  });
+
+  it('forwards Idempotency-Key, so a retried request is not paid twice', async () => {
+    const { toll, rail } = setup();
+    const handler = paid(toll.price('$0.01'), () => Response.json({ forecast: 'clear' }));
+    const headers = { payment: 'test proof=once', 'idempotency-key': 'order-7' };
+    expect((await handler(new Request('http://localhost/weather', { headers }), routeContext({}))).status).toBe(200);
+
+    const retry = await handler(new Request('http://localhost/weather', { headers }), routeContext({}));
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ error: { code: 'already_paid' } });
+    expect(rail.effects.settlements).toBe(1);
   });
 
   it('passes the resolved principal to access policies', async () => {

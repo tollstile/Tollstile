@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { app } from '../src/app';
 
-const challengeOf = async (response: Response) => (await response.json()) as { price: string; quote: string; reason: string | null };
+const challengeOf = async (response: Response) => (await response.json()) as { price: string; quote: string; error: { code: string } };
 
 describe('hono example', () => {
   it('answers 402 with a quote, then 200 with a receipt once the quote is paid', async () => {
@@ -23,7 +23,7 @@ describe('hono example', () => {
 
     const otherBody = await app.request('/translate', { method: 'POST', body: `${text} all week`, headers: { payment: `test quote=${quote}` } });
     expect(otherBody.status).toBe(402);
-    expect(await challengeOf(otherBody)).toMatchObject({ reason: 'quote_mismatch', price: '$0.008' });
+    expect(await challengeOf(otherBody)).toMatchObject({ error: { code: 'quote_mismatch' }, price: '$0.008' });
 
     const paid = await app.request('/translate', { method: 'POST', body: text, headers: { payment: `test quote=${quote}` } });
     expect(paid.status).toBe(200);

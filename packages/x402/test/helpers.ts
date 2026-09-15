@@ -16,6 +16,8 @@ import { FACILITATOR_URL, fakeNetwork, RPC_URL, UPTO_PROXY } from './fake-networ
 
 export const PAY_TO = '0x209693Bc6afc0C5328bA36FaF03C514EF312287C';
 export const PAYER = '0x857b06519E91e3A54538791bDbb0E22373e36b66';
+/** The canonical payer id the rail reports: the address in lowercase hex. */
+export const PAYER_ID = PAYER.toLowerCase();
 export const FACILITATOR_ADDRESS = '0xd407e409E34E0b9afb99EcCeb609bDbcD5e7f1bf';
 
 export type Result = {
@@ -62,10 +64,11 @@ export type Handler<Rails extends readonly Rail[]> = (payment: Payment<Rails>) =
 /** Drives a gate the way an HTTP adapter does. */
 export async function call<Rails extends readonly Rail[]>(
   gate: Gate<Rails>,
-  options: { readonly payment?: JsonObject; readonly handler?: Handler<Rails>; readonly path?: string } = {},
+  options: { readonly payment?: JsonObject; readonly handler?: Handler<Rails>; readonly path?: string; readonly idempotencyKey?: string } = {},
 ): Promise<Result> {
   const headers = new Headers();
   if (options.payment !== undefined) headers.set('PAYMENT-SIGNATURE', base64Json(options.payment));
+  if (options.idempotencyKey !== undefined) headers.set('Idempotency-Key', options.idempotencyKey);
   const request = new Request(`http://localhost${options.path ?? '/weather'}`, { headers });
   const entry = await gate.enter(httpContext(request));
 
@@ -117,6 +120,8 @@ export type SignOptions = {
   readonly validBefore?: bigint;
   readonly spender?: string;
   readonly facilitator?: string;
+  /** A `payment-identifier` extension id. */
+  readonly paymentId?: string;
 };
 
 /** What an x402 client would send for `accepted`. The facilitator is fake, so the signature is too. */
@@ -149,7 +154,8 @@ export function sign(accepted: Requirement, now: Date, options: SignOptions = {}
             witness: { to: options.to ?? accepted.payTo, facilitator: options.facilitator ?? FACILITATOR_ADDRESS, validAfter: '0' },
           },
         };
-  return { x402Version: 2, resource: { url: 'http://localhost/weather' }, accepted, payload };
+  const extensions = options.paymentId === undefined ? {} : { extensions: { 'payment-identifier': { info: { required: false, id: options.paymentId } } } };
+  return { x402Version: 2, resource: { url: 'http://localhost/weather' }, accepted, payload, ...extensions };
 }
 
 /** 402, then pay what was offered. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import worker from '../src/index';
 
 // Calls the Worker's exported fetch handler directly, as the Workers runtime would.
-const challengeOf = async (response: Response) => (await response.json()) as { price: string; quote: string; reason: string | null };
+const challengeOf = async (response: Response) => (await response.json()) as { price: string; quote: string; error: { code: string } };
 
 describe('cloudflare workers example', () => {
   it('answers 402 with a quote, then 200 with a receipt once the quote is paid', async () => {
@@ -28,7 +28,7 @@ describe('cloudflare workers example', () => {
 
     const otherBody = await translate(`${text} all week`, { payment: `test quote=${quote}` });
     expect(otherBody.status).toBe(402);
-    expect(await challengeOf(otherBody)).toMatchObject({ reason: 'quote_mismatch', price: '$0.008' });
+    expect(await challengeOf(otherBody)).toMatchObject({ error: { code: 'quote_mismatch' }, price: '$0.008' });
 
     const paid = await translate(text, { payment: `test quote=${quote}` });
     expect(paid.status).toBe(200);

@@ -99,8 +99,9 @@ if (unpaid.status !== 402) {
 const challenge = (await unpaid.json()) as Challenge;
 console.log(\`  price \${challenge.price} · rails \${challenge.accepts.map((offer) => offer.rail).join(", ")}\`);
 
-console.log(\`→ GET \${url}  (Payment: test)\`);
-const paid = await fetch(url, { headers: { payment: "test" } });
+// An Idempotency-Key makes the paid request safe to retry: a retry is never paid or run twice.
+console.log(\`→ GET \${url}  (Payment: test, Idempotency-Key)\`);
+const paid = await fetch(url, { headers: { payment: "test", "idempotency-key": crypto.randomUUID() } });
 console.log(\`← \${paid.status} \${paid.statusText}\`);
 console.log(\`  receipt \${paid.headers.get("payment-receipt") ?? "none"}\`);
 console.log(\`  \${await paid.text()}\`);

@@ -157,11 +157,13 @@ export function mppTempoSession(options: MppTempoSessionOptions): MppTempoSessio
       for (const [key, entry] of vouchers) if (entry.expiresAt <= now.getTime()) vouchers.delete(key);
 
       const read = await readCredential(context, { realm, method: METHOD, intent: INTENT, secrets, now });
-      if (read.status !== 'present') return read;
+      if (read.status === 'absent') return read;
+      // The proof id of a session is its channel, so an expired challenge says nothing about a prior payment.
+      if (read.status === 'invalid') return { status: 'invalid', reason: read.reason };
       const { credential } = read;
 
       const resolved = await chargeTerms(credential, terms, NAME);
-      if (resolved.status === 'invalid') return resolved;
+      if (resolved.status === 'invalid') return { status: 'invalid', reason: resolved.reason };
       const amount = resolved.offer === null ? toAssetUnits(resolved.price, TOKEN_SCALE) : BigInt(resolved.offer.amount);
       if (resolved.price.currency !== options.denomination || !sameRequest(credential, request(amount))) {
         return { status: 'invalid', reason: 'challenge_terms_mismatch' };

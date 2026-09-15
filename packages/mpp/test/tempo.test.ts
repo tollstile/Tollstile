@@ -79,6 +79,7 @@ describe('mppTempo pull mode', () => {
     expect(node.broadcasts).toEqual([signed]);
     expect(charges()).toEqual(['settled/completed']);
     expect(ledger.authorizations()[0]?.payer).toBe(`did:pkh:eip155:${String(CHAIN_ID)}:${payer.address}`);
+    expect(ledger.authorizations()[0]?.payer).toMatch(/^did:pkh:eip155:42431:0x[0-9a-f]{40}$/);
     const receipt = decodeJson(result.headers.get('payment-receipt') ?? '');
     expect(receipt).toMatchObject({ status: 'success', method: 'tempo', challengeId: challenge.id });
     expect(node.receipts.has(receipt.reference as string)).toBe(true);
@@ -121,14 +122,14 @@ describe('mppTempo pull mode', () => {
       ['fee_payer_unsupported', pay(challenge, { feePayerMarker: true })],
     ];
     for (const [reason, signed] of cases) {
-      expect(await get(gate, { authorization: credential(challenge, signed) })).toMatchObject({ status: 402, handlerRuns: 0, body: { reason } });
+      expect(await get(gate, { authorization: credential(challenge, signed) })).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: reason } } });
     }
 
     const signed = pay(challenge);
     const highS = signed.slice(0, -130) + flipS(signed.slice(-130));
-    expect((await get(gate, { authorization: credential(challenge, highS) })).body.reason).toBe('signature_invalid');
-    expect((await get(gate, { authorization: credential(challenge, '0x02f8') })).body.reason).toBe('transaction_malformed');
-    expect((await get(gate, { authorization: authorization(challenge, { type: 'hash', hash: `0x${'11'.repeat(32)}` }) })).body.reason).toBe('mode_unsupported');
+    expect((await get(gate, { authorization: credential(challenge, highS) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'signature_invalid' });
+    expect((await get(gate, { authorization: credential(challenge, '0x02f8') })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'transaction_malformed' });
+    expect((await get(gate, { authorization: authorization(challenge, { type: 'hash', hash: `0x${'11'.repeat(32)}` }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'mode_unsupported' });
     expect(node.broadcasts).toHaveLength(0);
   });
 
@@ -139,8 +140,31 @@ describe('mppTempo pull mode', () => {
     const proof = credential(challenge, pay(challenge));
     await get(gate, { authorization: proof });
 
-    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 402, body: { reason: 'proof_already_used' } });
+    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
     expect(node.broadcasts).toHaveLength(1);
+  });
+
+  it('answers a retry of a paid request from the ledger once its transaction can no longer be broadcast', async () => {
+    const { toll, node, pay, credential, clock } = tempoSetup();
+    const gate = toll.price('$0.01');
+    const challenge = await challengeFor(gate);
+    const proof = credential(challenge, pay(challenge));
+    await get(gate, { authorization: proof });
+    // Past the transaction's validBefore, but the challenge itself has not expired.
+    clock.advance(2 * 60_000);
+
+    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'proof_already_used' } } });
+    expect(node.broadcasts).toHaveLength(1);
+  });
+
+  it('still asks for payment when an expired transaction never paid', async () => {
+    const { toll, pay, credential, clock } = tempoSetup();
+    const gate = toll.price('$0.01');
+    const challenge = await challengeFor(gate);
+    const proof = credential(challenge, pay(challenge));
+    clock.advance(2 * 60_000);
+
+    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 402, body: { error: { code: 'proof_invalid', detail: 'transaction_expired' } } });
   });
 
   it('refuses a transaction signed for another challenge', async () => {
@@ -149,7 +173,7 @@ describe('mppTempo pull mode', () => {
     const first = await challengeFor(gate);
     const second = await challengeFor(gate);
 
-    expect((await get(gate, { authorization: credential(second, pay(first)) })).body.reason).toBe('transfer_mismatch');
+    expect((await get(gate, { authorization: credential(second, pay(first)) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'transfer_mismatch' });
   });
 
   it('pays split recipients in the same transaction', async () => {
@@ -159,7 +183,7 @@ describe('mppTempo pull mode', () => {
     expect(decodeJson(challenge.request ?? '').methodDetails).toMatchObject({ splits: [{ amount: '1000', recipient: PLATFORM }] });
 
     const unsplit = pay(challenge, { calls: (memo, amount) => [transfer(RECIPIENT, amount, memo)] });
-    expect((await get(gate, { authorization: credential(challenge, unsplit) })).body.reason).toBe('transfer_mismatch');
+    expect((await get(gate, { authorization: credential(challenge, unsplit) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'transfer_mismatch' });
     const split = pay(challenge, { calls: (memo) => [transfer(PLATFORM, 1_000n), transfer(RECIPIENT, 9_000n, memo)] });
     expect((await get(gate, { authorization: credential(challenge, split) })).status).toBe(200);
   });
@@ -173,7 +197,7 @@ describe('mppTempo settlement outcomes', () => {
     node.simulate({ send: 'revert' });
     const result = await get(gate, { authorization: credential(challenge, pay(challenge)) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 1, settlement: 'rejected', body: { reason: 'settlement_rejected' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 1, settlement: 'rejected', body: { error: { code: 'settlement_rejected' } } });
     expect(result.headers.get('payment-receipt')).toBeNull();
     expect(charges()).toEqual(['failed/completed']);
     expect(errors()).toMatchObject([{ code: 'SETTLEMENT_REJECTED' }]);
@@ -247,7 +271,7 @@ describe('mppTempo crash recovery', () => {
 
 describe('mppTempo push mode', () => {
   it('accepts a transaction the payer already broadcast, bound to this challenge', async () => {
-    const { toll, node, pay, charges } = tempoSetup({ modes: ['pull', 'push'] });
+    const { toll, node, pay, charges, ledger, payer } = tempoSetup({ modes: ['pull', 'push'] });
     const gate = toll.price('$0.01');
     const challenge = await challengeFor(gate);
     expect((decodeJson(challenge.request ?? '').methodDetails as Record<string, unknown>).supportedModes).toBeUndefined();
@@ -258,6 +282,7 @@ describe('mppTempo push mode', () => {
     expect(decodeJson(result.headers.get('payment-receipt') ?? '').reference).toBe(hash);
     expect(charges()).toEqual(['settled/completed']);
     expect(node.broadcasts).toHaveLength(0);
+    expect(ledger.authorizations()[0]?.payer).toBe(`did:pkh:eip155:42431:${payer.address}`);
   });
 
   it('records a pushed transfer as settled before the handler, and keeps it settled when the handler fails', async () => {
@@ -278,7 +303,19 @@ describe('mppTempo push mode', () => {
     expect(charges()).toEqual(['settled/failed']);
     expect(errors().at(-1)).toMatchObject({ code: 'RECONCILIATION_SKIPPED' });
 
-    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'proof_already_used' } });
+    // The transfer was kept, so a retry of the credential is answered as paid and does not run the handler again.
+    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+  });
+
+  it('answers a retry of a pushed payment from the ledger after its challenge expired', async () => {
+    const { toll, node, pay, clock } = tempoSetup({ modes: ['push'] });
+    const gate = toll.price('$0.01');
+    const challenge = await challengeFor(gate);
+    const proof = authorization(challenge, { type: 'hash', hash: node.include(pay(challenge)) });
+    await get(gate, { authorization: proof });
+    clock.advance(6 * 60_000);
+
+    expect(await get(gate, { authorization: proof })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'proof_already_used' } } });
   });
 
   it('refuses unknown, reverted, and unrelated transactions, and answers 503 when the node is down', async () => {
@@ -288,9 +325,9 @@ describe('mppTempo push mode', () => {
     const other = await challengeFor(gate);
     const hashOf = (hash: string) => authorization(challenge, { type: 'hash', hash });
 
-    expect((await get(gate, { authorization: hashOf(`0x${'11'.repeat(32)}`) })).body.reason).toBe('transaction_not_found');
-    expect((await get(gate, { authorization: hashOf(node.include(pay(challenge, { validBefore: seconds(30_000) }), false)) })).body.reason).toBe('transaction_reverted');
-    expect((await get(gate, { authorization: hashOf(node.include(pay(other))) })).body.reason).toBe('transfer_mismatch');
+    expect((await get(gate, { authorization: hashOf(`0x${'11'.repeat(32)}`) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'transaction_not_found' });
+    expect((await get(gate, { authorization: hashOf(node.include(pay(challenge, { validBefore: seconds(30_000) }), false)) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'transaction_reverted' });
+    expect((await get(gate, { authorization: hashOf(node.include(pay(other))) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'transfer_mismatch' });
 
     node.simulate({ read: 'down' });
     expect(await get(gate, { authorization: hashOf(node.include(pay(challenge))) })).toMatchObject({ status: 503, handlerRuns: 0 });

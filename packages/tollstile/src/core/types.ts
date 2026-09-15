@@ -1,3 +1,4 @@
+import type { DenialCode, DenialError } from './denials';
 import type { Money } from './money';
 import type { ChargeStates, Flow, FulfillmentState, PaymentState, PendingOperation } from './states';
 
@@ -28,6 +29,11 @@ export type Context = {
   readonly resource: string;
   /** Unique per inbound request. */
   readonly requestId: string;
+  /**
+   * The client's idempotency key: the `Idempotency-Key` header, or `_meta["tollstile/idempotency-key"]`.
+   * Retries with the same key and proof find the same charge instead of paying again. See SPEC.md §11.
+   */
+  readonly idempotencyKey: string | null;
   /** The framework object. An escape hatch; prefer `request` and `principal`. */
   readonly extras: unknown;
 };
@@ -115,6 +121,8 @@ export type Charge = {
   readonly pending: PendingOperation | null;
   readonly settlement: Settlement | null;
   readonly refundReference: string | null;
+  /** Hash of the request an idempotency key was first used with; `null` without a key. */
+  readonly requestHash: string | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 };
@@ -132,6 +140,7 @@ export type NewCharge = {
   readonly flow: Flow;
   readonly amount: Money;
   readonly fulfillment: FulfillmentState;
+  readonly requestHash: string | null;
   readonly at: Date;
 };
 
@@ -211,8 +220,11 @@ export type RailChallenge = {
   readonly headers: readonly Header[];
   /** Included in Tollstile's 402 body. */
   readonly accepts: Json;
-  /** The rail's native MCP payment-required payload: `{ style: "x402" | "mpp" | "tollstile", ... }`. */
-  readonly mcp: JsonObject;
+  /**
+   * The rail's MCP payment-required payload. `style` names the MCP payment convention the rail
+   * follows; the MCP adapter renders the styles it knows and falls back to Tollstile's `_meta` form.
+   */
+  readonly mcp: JsonObject & { readonly style: string };
 };
 
 export type VerifyTerms = {
@@ -227,7 +239,18 @@ export type VerifyTerms = {
 
 export type Verification<Data extends Json = Json> =
   | { readonly status: 'absent' }
-  | { readonly status: 'invalid'; readonly reason: string }
+  | {
+      readonly status: 'invalid';
+      readonly reason: string;
+      /**
+       * Set when the proof is well-formed and identifies what it paid for, even though it can no longer
+       * be accepted (e.g. the provider says its nonce was already used). Core then answers a retry of a
+       * request that was already paid from the ledger, instead of asking the client to pay again.
+       */
+      readonly proofId?: string;
+      /** The proof's protocol payment identifier, as on a valid result. */
+      readonly idempotencyKey?: string;
+    }
   | {
       readonly status: 'valid';
       /** Stable for the same proof. Authorizations are keyed by rail + proofId. */
@@ -244,6 +267,8 @@ export type Verification<Data extends Json = Json> =
        * it is refunded when the rail can refund, and otherwise stays settled and is reported.
        */
       readonly settled?: Settlement;
+      /** A payment identifier from the protocol, used as the idempotency key when the client sent none. */
+      readonly idempotencyKey?: string;
     };
 
 export type SettleResult =
@@ -343,7 +368,7 @@ export type TollstileEvent =
   | { readonly type: 'quote.issued'; readonly quote: Quote }
   | { readonly type: 'authorization.opened'; readonly authorization: Authorization; readonly created: boolean }
   | { readonly type: 'charge.moved'; readonly charge: Charge; readonly from: ChargeStates }
-  | { readonly type: 'request.denied'; readonly resource: string; readonly status: number; readonly reason: string }
+  | { readonly type: 'request.denied'; readonly resource: string; readonly status: number; readonly code: DenialCode }
   | { readonly type: 'error'; readonly error: Error; readonly charge: Charge | null };
 
 // ─── Configuration and routes ─────────────────────────────────────────────────
@@ -448,6 +473,8 @@ export type ChallengeOffer = {
 /** Why a request was not admitted, in a form any transport can render. */
 export type Denial = {
   readonly status: number;
+  /** Also in `body.error`. */
+  readonly error: DenialError;
   readonly body: JsonObject;
   readonly headers: readonly Header[];
   readonly offers: readonly ChallengeOffer[];

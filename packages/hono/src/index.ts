@@ -1,6 +1,6 @@
 import type { Context as HonoContext, MiddlewareHandler } from 'hono';
 import { routePath } from 'hono/route';
-import { toResponse, type Gate, type Payment, type Principal, type Rail } from 'tollstile';
+import { idempotencyKeyOf, toResponse, type Gate, type Payment, type Principal, type Rail } from 'tollstile';
 
 export type TollstileEnv<Rails extends readonly Rail[]> = {
   Variables: { payment: Payment<Rails> };
@@ -27,6 +27,7 @@ export function tollstile<Rails extends readonly Rail[]>(
       principal: options.principal === undefined ? null : await options.principal(c),
       resource: `${c.req.method} ${routePath(c)}`,
       requestId: crypto.randomUUID(),
+      idempotencyKey: idempotencyKeyOf(c.req.raw, null),
       extras: c,
     });
     if (entry.kind === 'denied') return toResponse(entry.denial);

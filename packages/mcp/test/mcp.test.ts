@@ -14,6 +14,7 @@ import {
   type Context,
   type JsonObject,
   type Rail,
+  type RailChallenge,
 } from 'tollstile';
 import { fakeClock } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
@@ -86,7 +87,7 @@ function readProof(proof: unknown): { quote: string | undefined; id: string | un
 }
 
 /** A rail that never finds a proof and only contributes a challenge in the given MCP style. */
-function challengeOnly(name: string, mcp: JsonObject): Rail {
+function challengeOnly(name: string, mcp: RailChallenge['mcp']): Rail {
   const nothing = () => Promise.resolve({ status: 'none' } as const);
   return {
     name,
@@ -165,7 +166,7 @@ describe('@tollstile/mcp with the test rail', () => {
     expect(unpaid.isError).toBe(true);
     expect(runs()).toBe(0);
     const body = denialOf(unpaid);
-    expect(body).toMatchObject({ error: 'payment_required', resource: 'tool:forecast', price: '$0.01', accepts: [{ rail: 'test' }] });
+    expect(body).toMatchObject({ error: { code: 'payment_required' }, resource: 'tool:forecast', price: '$0.01', accepts: [{ rail: 'test' }] });
     expect(JSON.parse(textOf(unpaid) ?? '')).toEqual(body);
     expect(unpaid.structuredContent).toBeUndefined();
 
@@ -186,7 +187,7 @@ describe('@tollstile/mcp with the test rail', () => {
     const quote = String(denialOf(await callTool('forecast'))?.quote);
     const tampered = await callTool('forecast', { 'tollstile/test-payment': `test quote=${quote.slice(0, -2)}xx` });
 
-    expect(denialOf(tampered)).toMatchObject({ error: 'payment_invalid', reason: 'quote_invalid' });
+    expect(denialOf(tampered)).toMatchObject({ error: { code: 'quote_invalid' } });
     expect(runs()).toBe(0);
   });
 
@@ -215,7 +216,7 @@ describe('@tollstile/mcp with the test rail', () => {
     const replay = await callTool('forecast', { 'tollstile/test-payment': 'test proof=p1' });
 
     expect(replay.isError).toBe(true);
-    expect(denialOf(replay)).toMatchObject({ reason: 'proof_already_used' });
+    expect(denialOf(replay)).toMatchObject({ error: { code: 'proof_already_used' } });
     expect(runs()).toBe(1);
     expect(test.effects.settlements).toBe(1);
   });
@@ -282,7 +283,7 @@ describe('@tollstile/mcp with the test rail', () => {
     const result = await callTool('forecast', { 'tollstile/test-payment': 'test' });
 
     expect(result.isError).toBe(true);
-    expect(denialOf(result)).toEqual({ error: 'payment_unavailable', rail: 'test' });
+    expect(denialOf(result)).toMatchObject({ error: { code: 'payment_unavailable', action: 'retry_later' }, rail: 'test' });
     expect(runs()).toBe(0);
   });
 
@@ -294,8 +295,8 @@ describe('@tollstile/mcp with the test rail', () => {
     const result = await callTool('members_only');
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(textOf(result) ?? '')).toEqual({ error: 'access_denied', resource: 'tool:members_only' });
-    expect(denialOf(result)).toEqual({ error: 'access_denied', resource: 'tool:members_only' });
+    expect(JSON.parse(textOf(result) ?? '')).toMatchObject({ error: { code: 'access_denied' }, resource: 'tool:members_only' });
+    expect(denialOf(result)).toMatchObject({ error: { code: 'access_denied', action: 'stop' }, resource: 'tool:members_only' });
   });
 
   it('uses gate.resource instead of the tool name', async () => {
@@ -346,10 +347,23 @@ describe('@tollstile/mcp with the test rail', () => {
     expect(quoted?.price).toBe('$0.005');
     const payment = { 'tollstile/test-payment': `test quote=${String(quoted?.quote)}` };
 
-    expect(denialOf(await translate('x'.repeat(100_000), payment))).toMatchObject({ reason: 'quote_mismatch', price: '$100.00' });
+    expect(denialOf(await translate('x'.repeat(100_000), payment))).toMatchObject({ error: { code: 'quote_mismatch' }, price: '$100.00' });
     expect(served).toBe(0);
     expect(textOf(await translate('hello', payment))).toBe('hello');
     expect(served + runs()).toBe(1);
+  });
+
+  it('reads the idempotency key from _meta, so a retried tool call is not paid or run twice', async () => {
+    const { connect, callTool, runs, test } = setup();
+    await connect();
+    const meta = { 'tollstile/test-payment': 'test proof=once', 'tollstile/idempotency-key': 'call-7' };
+    expect((await callTool('forecast', meta)).isError).toBeUndefined();
+
+    const retry = await callTool('forecast', meta);
+    expect(retry.isError).toBe(true);
+    expect(denialOf(retry)).toMatchObject({ error: { code: 'already_paid', action: 'stop' } });
+    expect(test.effects.settlements).toBe(1);
+    expect(runs()).toBe(1);
   });
 
   it('passes the resolved principal to credits()', async () => {
@@ -374,7 +388,7 @@ describe('@tollstile/mcp with the test rail', () => {
     expect(balance.available('acct_1')?.micros).toBe(750_000n);
 
     const anonymous = await callTool('credit_forecast');
-    expect(denialOf(anonymous)).toMatchObject({ error: 'payment_required' });
+    expect(denialOf(anonymous)).toMatchObject({ error: { code: 'payment_required' } });
   });
 
   it('refuses _meta that is not JSON without consulting the gate', async () => {
@@ -384,7 +398,7 @@ describe('@tollstile/mcp with the test rail', () => {
     const result = await callTool('forecast', { 'tollstile/test-payment': 'test', amount: 10n });
 
     expect(result.isError).toBe(true);
-    expect(denialOf(result)).toEqual({ error: 'invalid_request', reason: 'meta_not_json' });
+    expect(denialOf(result)).toMatchObject({ error: { code: 'invalid_request', action: 'fix_request', detail: 'meta_not_json' } });
     expect(runs()).toBe(0);
     expect(contexts).toHaveLength(0);
     expect(ledger.charges()).toHaveLength(0);
@@ -399,7 +413,7 @@ describe('@tollstile/mcp with the test rail', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).not.toContain('clear');
-    expect(denialOf(result)).toMatchObject({ reason: 'settlement_rejected', price: '$0.01' });
+    expect(denialOf(result)).toMatchObject({ error: { code: 'settlement_rejected' }, price: '$0.01' });
     expect(charges()).toEqual(['failed/completed']);
   });
 });
@@ -415,7 +429,7 @@ describe('x402 style', () => {
     const paymentRequired = unpaid.structuredContent as { accepts: [{ extra: { quote: string } }] };
     expect(paymentRequired).toMatchObject({ x402Version: 2, accepts: [{ scheme: 'exact', amount: '10000' }] });
     expect(unpaid.content).toEqual([{ type: 'text', text: JSON.stringify(paymentRequired) }]);
-    expect(denialOf(unpaid)).toMatchObject({ error: 'payment_required', accepts: [{ rail: 'test' }, { rail: 'x402' }] });
+    expect(denialOf(unpaid)).toMatchObject({ error: { code: 'payment_required' }, accepts: [{ rail: 'test' }, { rail: 'x402' }] });
     expect(runs()).toBe(0);
 
     const [accepted] = paymentRequired.accepts;
@@ -433,7 +447,7 @@ describe('x402 style', () => {
     const result = await callTool('forecast', { 'x402/payment': { accepted: { extra: { quote: 'forged' } }, payload: { id: 'n1', from: '0xpayer' } } });
 
     expect(result.structuredContent).toMatchObject({ x402Version: 2, error: 'quote_invalid' });
-    expect(denialOf(result)).toMatchObject({ error: 'payment_invalid', reason: 'quote_invalid' });
+    expect(denialOf(result)).toMatchObject({ error: { code: 'quote_invalid' } });
   });
 });
 
@@ -470,7 +484,7 @@ describe('mpp style', () => {
     const generic = await mppOnly.callTool('forecast');
     expect(generic.isError).toBe(true);
     expect(generic.structuredContent).toBeUndefined();
-    expect(denialOf(generic)).toMatchObject({ error: 'payment_required', accepts: [{ rail: 'test' }, { rail: 'mpp' }] });
+    expect(denialOf(generic)).toMatchObject({ error: { code: 'payment_required' }, accepts: [{ rail: 'test' }, { rail: 'mpp' }] });
   });
 });
 

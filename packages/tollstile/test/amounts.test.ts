@@ -96,7 +96,7 @@ describe('reusable authorizations', () => {
     const { toll } = setup({ rail: { authorization: 'reusable' } });
     const result = await call(toll.price('$2'), { payment: 'test proof=token1 limit=$1.00' });
 
-    expect(result).toMatchObject({ status: 402, body: { reason: 'insufficient_authorization' } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'insufficient_authorization' } } });
   });
 });
 

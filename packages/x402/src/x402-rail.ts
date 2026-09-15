@@ -13,7 +13,7 @@ import { facilitatorClient } from './facilitator';
 import { jsonRpcChain } from './json-rpc';
 import { sameAddress, UPTO_PROXY_ADDRESS } from './networks';
 import { resolveOptions, type Settings, type X402Options } from './options';
-import { parseEip3009, parsePermit2, readProof } from './payment-payload';
+import { parseEip3009, parsePermit2, paymentIdentifier, readProof } from './payment-payload';
 import { acceptedMatches, paymentRequired, QUOTE_EXTRA_KEY, requirementsFor, type PaymentRequirements } from './payment-requirements';
 import { lookupSettlement } from './settlement-lookup';
 import { encodeBase64Json, objectField, textField } from './wire';
@@ -106,10 +106,18 @@ export function x402(options: X402Options): X402Rail {
       const proof = readProof(context);
       if (proof.status !== 'present') return proof;
 
+      const identifier = paymentIdentifier(proof.paymentPayload);
+      if (identifier.status === 'invalid') return invalid('payment_identifier_invalid');
+      const idempotency = identifier.status === 'present' ? { idempotencyKey: identifier.id } : {};
+
       const extra = objectField(proof.accepted, 'extra');
       const quoteToken = extra === undefined ? undefined : textField(extra, QUOTE_EXTRA_KEY);
       const priced = quoteToken === undefined ? await routeTerms(settings, terms) : quotedTerms(settings, await terms.openQuote(quoteToken));
-      if ('status' in priced) return priced;
+      if ('status' in priced) {
+        // An expired quote on a payment this server already charged is a retry; let core recognize it.
+        const identified = priced.reason === 'quote_invalid' ? identify(proof.payload, settings) : undefined;
+        return identified === undefined ? priced : { ...priced, proofId: identified, ...idempotency };
+      }
 
       if (priced.variable && settings.upto === null) return invalid('variable_amount_unsupported');
       const requirements = requirementsFor(settings, { amount: priced.amount, variable: priced.variable, quoteToken: quoteToken ?? null });
@@ -120,7 +128,13 @@ export function x402(options: X402Options): X402Rail {
 
       // Always our own requirements: the client's copy is only trusted after it matched them.
       const verdict = await facilitator.verify({ x402Version: 2, paymentPayload: proof.paymentPayload, paymentRequirements: requirements }, operation);
-      if (!verdict.isValid) return invalid(verdict.invalidReason);
+      if (!verdict.isValid) {
+        // A rejected but genuine payment (e.g. its nonce was already used) still names the
+        // authorization it paid for, so core can answer a retry instead of asking to pay twice. A bad
+        // signature proves no identity.
+        const genuine = !verdict.invalidReason.includes('signature');
+        return genuine ? { ...invalid(verdict.invalidReason), proofId: proofIdOf(settings, signed), ...idempotency } : invalid(verdict.invalidReason);
+      }
       if (verdict.payer !== undefined && !sameAddress(verdict.payer, signed.payer)) return invalid('payer_mismatch');
 
       const limit = settings.basis.kind === 'par' ? money(settings.basis.currency, signed.authorizedAmount / 10n ** BigInt(asset.decimals - 6)) : priced.price;
@@ -139,7 +153,8 @@ export function x402(options: X402Options): X402Rail {
       };
       return {
         status: 'valid',
-        proofId: [network, asset.address, signed.payer, signed.nonce].join(':').toLowerCase(),
+        proofId: proofIdOf(settings, signed),
+        ...idempotency,
         payer: signed.payer,
         quote: priced.quote,
         limit,
@@ -236,13 +251,26 @@ async function assetUnits(settings: Settings, price: Money): Promise<bigint | nu
   return amount;
 }
 
+/** Stable per signed authorization: the same payment always maps to the same Tollstile authorization. */
+function proofIdOf(settings: Settings, signed: Pick<Signed, 'payer' | 'nonce'>): string {
+  return [settings.network, settings.asset.address, signed.payer, signed.nonce].join(':').toLowerCase();
+}
+
+/** The proof id of a well-formed payload, without checking it against any requirements. */
+function identify(payload: JsonObject, settings: Settings): string | undefined {
+  const eip3009 = parseEip3009(payload);
+  if (eip3009 !== undefined) return proofIdOf(settings, { payer: eip3009.from.toLowerCase(), nonce: eip3009.nonce });
+  const permit2 = parsePermit2(payload);
+  return permit2 === undefined ? undefined : proofIdOf(settings, { payer: permit2.from.toLowerCase(), nonce: permit2.nonce.toString() });
+}
+
 function signedEip3009(payload: JsonObject, requirements: PaymentRequirements): Signed | Invalid {
   const authorization = parseEip3009(payload);
   if (authorization === undefined) return invalid('payload_invalid');
   if (!sameAddress(authorization.to, requirements.payTo)) return invalid('recipient_mismatch');
   if (authorization.value !== BigInt(requirements.amount)) return invalid('amount_mismatch');
   return {
-    payer: authorization.from,
+    payer: authorization.from.toLowerCase(),
     nonce: authorization.nonce,
     validBefore: authorization.validBefore,
     authorizedAmount: authorization.value,
@@ -258,7 +286,7 @@ function signedPermit2(payload: JsonObject, requirements: PaymentRequirements, s
   if (!sameAddress(authorization.spender, UPTO_PROXY_ADDRESS)) return invalid('spender_mismatch');
   if (!sameAddress(authorization.facilitator, settings.upto.facilitatorAddress)) return invalid('facilitator_mismatch');
   return {
-    payer: authorization.from,
+    payer: authorization.from.toLowerCase(),
     nonce: authorization.nonce.toString(),
     validBefore: authorization.deadline,
     authorizedAmount: authorization.amount,

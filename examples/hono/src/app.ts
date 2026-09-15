@@ -8,7 +8,7 @@ export const app = new Hono();
 app.get('/weather', tollstile(toll.price('$0.01')), (c) => c.json({ city: 'Tokyo', forecast: 'clear' }));
 
 // A price computed from the request body. The quote commits to that exact body, so the paid retry
-// must send the same bytes; a different body gets a fresh 402 with reason "quote_mismatch".
+// must send the same bytes; a different body gets a fresh 402 with error code "quote_mismatch".
 app.post('/translate', tollstile(toll.price(pricePerWord)), async (c) => {
   const text = await c.req.text();
   return c.json({ translation: `[fr] ${text}` });

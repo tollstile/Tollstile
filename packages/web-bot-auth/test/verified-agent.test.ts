@@ -40,8 +40,16 @@ async function enter(gate: Gate<readonly Rail[]>, request: Request) {
     if (completion.settlement !== 'settled') throw new Error(`expected settlement, got ${completion.settlement}`);
     return { status: 200, reason: null };
   }
-  const body = (await toResponse(entry.denial).json()) as { reason?: string | null };
-  return { status: entry.denial.status, reason: body.reason ?? null };
+  const body = (await toResponse(entry.denial).json()) as { error: { detail: string | null } };
+  return { status: entry.denial.status, reason: body.error.detail };
+}
+
+/** The rendered denial, for assertions on the error envelope itself. */
+async function denial(gate: Gate<readonly Rail[]>, request: Request) {
+  const entry = await gate.enter(httpContext(request));
+  if (entry.kind === 'admitted') throw new Error('expected a denial');
+  const response = toResponse(entry.denial);
+  return { status: response.status, headers: response.headers, body: (await response.json()) as Record<string, unknown> };
 }
 
 describe('verifiedAgent', () => {
@@ -74,6 +82,17 @@ describe('verifiedAgent', () => {
     expect(result).toEqual({ status: 403, reason: 'signature_missing' });
     expect(ledger.charges()).toHaveLength(0);
     expect(rail.effects.settlements).toBe(0);
+  });
+
+  it('tells the client to stop when a signature is refused', async () => {
+    const { gate } = await setup();
+    const { status, body } = await denial(gate, new Request(URL_, { headers: { payment: 'test' } }));
+
+    expect(status).toBe(403);
+    expect(body).toMatchObject({
+      error: { code: 'requirement_failed', retryable: false, action: 'stop', detail: 'signature_missing' },
+      requirement: 'verified-agent',
+    });
   });
 
   it('never fetches the directory of an untrusted origin', async () => {
@@ -202,6 +221,19 @@ describe('verifiedAgent', () => {
     }
   });
 
+  it('tells the client to retry later when the directory is unavailable', async () => {
+    const { gate, sign, directory } = await setup();
+    directory.respond(() => Promise.reject(new TypeError('fetch failed')));
+    const { status, headers, body } = await denial(gate, await sign());
+
+    expect(status).toBe(503);
+    expect(headers.get('retry-after')).not.toBeNull();
+    expect(body).toMatchObject({
+      error: { code: 'requirement_unavailable', retryable: true, action: 'retry_later', detail: 'directory_unavailable' },
+      requirement: 'verified-agent',
+    });
+  });
+
   it("aborts the directory fetch when Tollstile's provider timeout elapses", async () => {
     const aborted: boolean[] = [];
     const { gate, sign, directory, ledger } = await setup({ timeoutMs: 60_000 }, undefined, 20);
@@ -293,7 +325,7 @@ describe('verifiedAgent', () => {
     const { gate, directory } = await setup();
     const entry = await gate.enter(mcpContext('search', { 'tollstile/test-payment': 'test' }));
 
-    expect(entry.kind === 'denied' && entry.denial).toMatchObject({ status: 403, body: { reason: 'http_request_required' } });
+    expect(entry.kind === 'denied' && entry.denial).toMatchObject({ status: 403, body: { error: { code: 'requirement_failed', detail: 'http_request_required' } } });
     expect(directory.requests).toEqual([]);
   });
 

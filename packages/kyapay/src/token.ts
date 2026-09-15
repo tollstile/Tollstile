@@ -41,7 +41,10 @@ export type PaymentToken = {
   readonly confirmation: JsonObject | null;
 };
 
-export type TokenCheck = { readonly ok: true; readonly token: PaymentToken } | { readonly ok: false; readonly reason: string };
+export type TokenCheck =
+  | { readonly ok: true; readonly token: PaymentToken }
+  /** `proofId` is set only for authentic bearer tokens addressed to this seller that were acceptable once, i.e. expired ones. */
+  | { readonly ok: false; readonly reason: string; readonly proofId?: string };
 
 const PAYMENT_TYPES: Readonly<Record<string, PaymentTokenType>> = { 'pay+jwt': 'pay', 'kya-pay+jwt': 'kya-pay' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -121,7 +124,10 @@ export async function verifyPaymentToken(token: DecodedToken, policy: TokenPolic
   if (!isEpochSeconds(iat) || !isEpochSeconds(exp) || !(nbf === undefined || isEpochSeconds(nbf))) return fail('invalid_claims');
 
   const seconds = Math.floor(now.getTime() / 1000);
-  if (seconds >= exp + policy.clockSkewSeconds) return fail('expired');
+  if (seconds >= exp + policy.clockSkewSeconds) {
+    // A sender-constrained token proves nothing about its presenter until the request signature is checked.
+    return claims.cnf === undefined ? { ok: false, reason: 'expired', proofId: tokenProofId(issuer, tokenId) } : fail('expired');
+  }
   if (iat > seconds + policy.clockSkewSeconds || (nbf !== undefined && nbf > seconds + policy.clockSkewSeconds)) {
     return fail('not_yet_valid');
   }
@@ -171,6 +177,11 @@ function checkPaymentClaims(claims: JsonObject): { readonly ok: true; readonly a
   const amount = amt === undefined ? undefined : parseUsdDecimal(amt);
   if (amount === undefined || amount.micros === 0n || val === undefined || !POSITIVE_INTEGER.test(val)) return fail('invalid_amount');
   return { ok: true, amount };
+}
+
+/** Stable for one token: `jti` is unique only per issuer. */
+export function tokenProofId(issuer: string, tokenId: string): string {
+  return `${issuer} ${tokenId}`;
 }
 
 function fail(reason: string): { readonly ok: false; readonly reason: string } {

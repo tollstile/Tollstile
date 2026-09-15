@@ -10,7 +10,7 @@ import {
   type SettleResult,
 } from 'tollstile';
 import { asciiRealm, challengeSecrets, quoteChallenge } from './challenge';
-import { chargeTerms, readCredential, sameRequest } from './credential';
+import { chargeTerms, readCredential, rejected, sameRequest } from './credential';
 import { isIntegerString, isObject } from './encoding';
 import { parseAddress, parseBytes32, type Address } from './evm';
 import { paymentReceipt } from './receipt';
@@ -196,11 +196,12 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
     async verify(context, terms, operation) {
       const now = clock.now();
       const read = await readCredential(context, { realm, method: METHOD, intent: INTENT, secrets, now });
-      if (read.status !== 'present') return read;
+      if (read.status === 'absent') return read;
+      if (read.status === 'invalid') return rejected(read);
       const { credential } = read;
 
       const resolved = await chargeTerms(credential, terms, NAME);
-      if (resolved.status === 'invalid') return resolved;
+      if (resolved.status === 'invalid') return rejected(resolved);
       // The challenge memo is derived from the quote; without one no transfer can be tied to this challenge.
       if (resolved.quote === null || resolved.offer === null) return { status: 'invalid', reason: 'quote_required' };
       const { quote } = resolved;
@@ -224,7 +225,8 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
         if (transaction.validBefore === null) return { status: 'invalid', reason: 'valid_before_required' };
         const validBeforeMs = Number(transaction.validBefore) * 1000;
         if (validBeforeMs > challengeExpires.getTime()) return { status: 'invalid', reason: 'valid_before_after_expiry' };
-        if (validBeforeMs <= now.getTime()) return { status: 'invalid', reason: 'transaction_expired' };
+        // Well-formed and for this challenge, but no longer broadcastable: it may already have paid.
+        if (validBeforeMs <= now.getTime()) return { status: 'invalid', reason: 'transaction_expired', proofId: challengeId };
         if (transaction.validAfter !== null && Number(transaction.validAfter) * 1000 > now.getTime()) {
           return { status: 'invalid', reason: 'transaction_not_yet_valid' };
         }
@@ -244,6 +246,7 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
             transaction: payload.signature,
             validBefore: transaction.validBefore.toString(),
           },
+          idempotencyKey: challengeId,
         };
       }
 
@@ -266,6 +269,7 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
           expiresAt: challengeExpires,
           data: { challengeId, mode: 'push', hash, transaction: null, validBefore: null },
           settled: { reference: receipt.transactionHash, details: { mode: 'push', blockNumber: receipt.blockNumber } },
+          idempotencyKey: challengeId,
         };
       }
 
@@ -278,13 +282,12 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
         // Push charges are recorded as settled at verification, so core never asks; the transfer is final.
         return { status: 'settled', reference: data.hash, details: { mode: 'push' } };
       }
-      // Redaction happens only once a charge is final, so a charge still being settled has the transaction.
-      if (data.transaction === null) throw inconsistent(authorization);
       const { transaction } = data;
-
-      if (expired(data)) {
+      // Redacted: a charge on this authorization is final, so the chain already has the answer.
+      if (transaction === null || expired(data)) {
         const receipt = await getReceipt(rpc, data.hash, operation.signal);
-        return receipt === null ? { status: 'rejected', reason: 'transaction_expired' } : fromReceipt(receipt, data);
+        if (receipt !== null) return fromReceipt(receipt, data);
+        return { status: 'rejected', reason: transaction === null ? 'transaction_not_included' : 'transaction_expired' };
       }
 
       // Rebroadcasting the same signed bytes is idempotent: the network includes one transaction per nonce.

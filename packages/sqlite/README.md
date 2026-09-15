@@ -59,6 +59,8 @@ const toll = createTollstile({ rails: [testRail()], ledger });
 
 Later releases that change the schema will ship a separate, additive migration and say so in the changelog. The ledger never alters tables itself.
 
+> **Pre-release schema changes.** Until the first release, `sqliteSchema` is edited in place and no migration is shipped. The `request_hash` column on `tollstile_charges` (the hash of the request an idempotency key was first used with) was added this way. A database created from an earlier build needs `ALTER TABLE tollstile_charges ADD COLUMN request_hash TEXT;`, because `CREATE TABLE IF NOT EXISTS` leaves an existing table unchanged.
+
 ## The driver contract
 
 `execute(sql, params)` runs one statement with anonymous `?` parameters and returns its rows as objects keyed by column name, synchronously or as a promise.
@@ -161,8 +163,8 @@ DELETE FROM tollstile_claims WHERE expires_at < (unixepoch() - 86400) * 1000;
 
 Tested in this repository, with `node:sqlite` (SQLite 3.50.4) on Node 22:
 
-- The shared ledger conformance suite, run against `memoryLedger` and twice against `sqliteLedger`: once with the synchronous adapter above, and once through an adapter that behaves like D1 (every call resolves on a later turn, so calls interleave between batches) with `INTEGER` columns returned as `bigint`. It covers every `createCharge` status, single-use busy versus a released retry, reusable capacity, concurrent charges on one authorization (one wins), compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
-- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
+- The shared ledger conformance suite, run against `memoryLedger` and twice against `sqliteLedger`: once with the synchronous adapter above, and once through an adapter that behaves like D1 (every call resolves on a later turn, so calls interleave between batches) with `INTEGER` columns returned as `bigint`. It covers every `createCharge` status, single-use busy versus a released retry, reusable capacity, concurrent charges on one authorization (one wins), compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, request hashes, an existing charge id under another authorization, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
+- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, an idempotency-key retry answered as `already_paid`, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
 - Rollback of a whole batch when one statement fails; two connections sharing one WAL file; the query plans use the partial and payer indexes; overflow and rounded-integer refusal.
 
 Not verified:

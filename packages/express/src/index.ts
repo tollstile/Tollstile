@@ -1,5 +1,5 @@
 import type { NextFunction, Request as ExpressRequest, RequestHandler, Response as ExpressResponse } from 'express';
-import { toResponse, TollstileError, type Gate, type Payment, type Principal, type Rail } from 'tollstile';
+import { idempotencyKeyOf, toResponse, TollstileError, type Gate, type Payment, type Principal, type Rail } from 'tollstile';
 import { holdResponse } from './held-response';
 
 export type ExpressAdapterOptions = {
@@ -52,6 +52,7 @@ export function paid<Rails extends readonly Rail[]>(
       principal: options.principal === undefined ? null : await options.principal(req),
       resource: `${req.method} ${routePath(req, request)}`,
       requestId: crypto.randomUUID(),
+      idempotencyKey: idempotencyKeyOf(request, null),
       extras: req,
     });
     if (entry.kind === 'denied') {

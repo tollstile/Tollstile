@@ -27,7 +27,10 @@ export function payers(options: PayersOptions): Requirement {
   };
 }
 
-/** EVM addresses differ only by checksum casing. */
+/**
+ * Rails return canonical payer ids (SPEC.md §6); lists are still compared case-insensitively, so a
+ * deny list written with different casing than a rail reports never misses a payer.
+ */
 function normalize(payer: string): string {
-  return payer.toLowerCase();
+  return payer.trim().toLowerCase();
 }

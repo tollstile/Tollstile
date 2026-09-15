@@ -161,8 +161,8 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
           `WITH created AS (
              INSERT INTO ${tables.charges}
                (id, authorization_id, request_id, resource, payer, flow, currency, reserved_micros, amount_micros,
-                payment, fulfillment, version, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::bigint, $8::bigint, 'reserved', $9, 1, $10::timestamptz, $10::timestamptz)
+                payment, fulfillment, request_hash, version, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::bigint, $8::bigint, 'reserved', $9, $11, 1, $10::timestamptz, $10::timestamptz)
              ON CONFLICT (id) DO NOTHING
              RETURNING *
            ), recorded AS (
@@ -181,6 +181,7 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
             amount,
             input.fulfillment,
             input.at.toISOString(),
+            input.requestHash,
           ],
         );
         if (rows[0] === undefined) {

@@ -51,6 +51,9 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 - **Receipts**: `Payment-Receipt` (base64url JCS JSON, with `challengeId`) plus `Cache-Control: private` on HTTP; `_meta["org.paymentauth/receipt"]` on MCP.
 - **MCP**: credentials from `_meta["org.paymentauth/credential"]` (native `request` JSON is accepted); `challenge.mcp` is `{ style: "mpp", challenge }` for the adapter's `-32042` error.
 - **proofId** is the challenge id (single-use enforced by the ledger), except for sessions, where it is the channel id.
+- **Idempotency key**: the charge rails return the challenge id as `idempotencyKey` (a client `Idempotency-Key` takes precedence). A challenge is issued for one 402 and paid once, so every presentation of its credential is the same logical request: a retry after success answers `409 already_paid` with the settlement reference, a retry while the outcome is unknown answers `503 payment_outcome_unknown`, and a retry after a release runs again. For Stripe it is also the key the PaymentIntent is deduplicated on. Sessions return none: one channel pays many requests, so only the client can say which requests are retries.
+- **Rejected but already paid**: when a credential this server issued can no longer be accepted (its challenge or quote expired, or a Tempo pull transaction is past `validBefore`), the charge rails still return its `proofId`, so a retry of a request that was paid is answered from the ledger (`409`) instead of a `402` asking the client to pay again. Sessions do not, since their proof id is the channel.
+- **Payers** are canonical: `did:pkh:eip155:<chainId>:<lowercase address>` for Tempo charge and session, `stripe:<challengeId>` for Stripe.
 
 ## `mppStripe(options)`
 
@@ -76,7 +79,7 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 
 - **Offers**: `null` for currencies without a known minor unit, amounts finer than the minor unit (sub-cent USD), and amounts below Stripe's general minimum (USD $0.50, GBP £0.30, …). A route priced below the minimum with `mppStripe` as its only rail answers `402` with an empty `accepts`; add a rail that can serve small amounts.
 - **Idempotency key: `tollstile_mpp_<challengeId>`**, not the spec's `${challenge.id}_${spt}` and not `operation.key`. A single challenge may be presented again after its charge was released (the core retry path). A per-charge key would let that retry create a second PaymentIntent; a key containing the SPT would do the same if the payer retried with a new SPT. One key per challenge means Stripe replays the first PaymentIntent (or answers an idempotency conflict, which is treated as ambiguous) instead of charging twice. Challenges expire in minutes, well inside Stripe's 24-hour key retention. Parameters are identical across retries (metadata holds only `challenge_id` and `tollstile_authorization`), so replays succeed. A replayed PaymentIntent is judged by its status.
-- **The SPT never reaches the ledger.** It is a bearer token, so it stays in process memory between `verify` and `settle` (same request). If settlement must be retried elsewhere, it is not: the upfront flow never re-settles from reconciliation, it looks up.
+- **The SPT never reaches the ledger.** It is a bearer token, so it stays in process memory, keyed by request, until its challenge expires (so a repeated `settle` replays the PaymentIntent through Stripe's idempotency). Another process cannot settle with it, and does not need to: the upfront flow never re-settles from reconciliation, it looks up.
 - **Lookup without creating a charge**: retrieve by PaymentIntent id when the charge has one; otherwise Stripe Search `metadata['challenge_id']:'<id>'`, re-checking the metadata of every hit. `processing`/`requires_capture` stay unknown. Refunds are found by `metadata.tollstile_charge`.
 - **Eventual-consistency risk**: Stripe Search is typically current within a minute but can lag longer during incidents. A miss younger than `searchLagMs` (measured from the charge's last transition) stays unknown. If Search lags longer than that, reconciliation releases the charge while a PaymentIntent exists: the payer is charged and the ledger says released. A retry of the same credential still replays that PaymentIntent (no second charge), but without a retry it is only visible in Stripe. Keep `searchLagMs` generous and reconcile Stripe payouts against the ledger.
 
@@ -105,10 +108,10 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 
 - **Challenge binding on-chain**: every request carries `methodDetails.memo = keccak256("tollstile/mpp:<realm>:<quote id>:<quote nonce>")`, and the primary transfer must be `transferWithMemo` with it. A transfer made for one challenge cannot satisfy another, so one on-chain payment cannot be presented twice under two challenge ids.
 - **Pull verification (offline)**: strict RLP decode of the `0x76` envelope, secp256k1 sender recovery (low-s), chain id, `validBefore` present, in the future and not after the challenge `expires`, `validAfter` not in the future, and the calls must be exactly the required transfers on the token (primary with memo, plus splits). Refused as local policy: fee-payer sponsorship (`feePayer` is never offered), key authorizations, authorization lists, non-secp256k1 signatures, and extra calls.
-- **Signed transaction in the ledger**: stored in authorization data so settlement survives a crash, and dropped by `redact` when a charge becomes terminal (the hash and `validBefore` stay for lookup). A released charge keeps it, so the same credential can be retried.
+- **Signed transaction in the ledger**: stored in authorization data so settlement survives a crash, and dropped by `redact` when a charge becomes final (the hash and `validBefore` stay for lookup). A released charge keeps it, so the same credential can be retried. Settling again after redaction answers from the transaction receipt.
 - **Settlement**: `eth_sendRawTransactionSync`. Rebroadcasting the same bytes cannot transfer twice (one nonce). A lost answer or a refusal without a receipt stays unknown until the transaction can no longer be included (`validBefore` + margin); only then is it rejected.
 - **Residual risk (authorization flow)**: between verification and broadcast the payer can spend the nonce or the balance. The handler has then run unpaid; the charge ends `failed/completed` and `onEvent` reports `SETTLEMENT_REJECTED`. The window is the handler's duration. Balance simulation before admission is not implemented.
-- **Push mode** (`modes: ["pull", "push"]`): the payer broadcasts and sends the hash; the receipt's `Transfer`/`TransferWithMemo` logs are checked at verification, and `verify` returns `settled` with the transaction hash. Core records the charge with flow `upfront` (money moved before the handler, even though the rail declares only `authorization` for pull mode) as `settled/running` before the handler. Because this rail cannot refund, a failed handler leaves the charge `settled/failed` with a `REFUND_REJECTED` event, and reconciliation skips it (`RECONCILIATION_SKIPPED`). The credential cannot be presented again. Enable push only if you are willing to keep payments for failed handlers and handle them yourself.
+- **Push mode** (`modes: ["pull", "push"]`): the payer broadcasts and sends the hash; the receipt's `Transfer`/`TransferWithMemo` logs are checked at verification, and `verify` returns `settled` with the transaction hash. Core records the charge with flow `upfront` (money moved before the handler, even though the rail declares only `authorization` for pull mode) as `settled/running` before the handler. Because this rail cannot refund, a failed handler leaves the charge `settled/failed` with a `REFUND_REJECTED` event, and reconciliation skips it (`RECONCILIATION_SKIPPED`). Presenting the credential again answers `409 already_paid`. Enable push only if you are willing to keep payments for failed handlers and handle them yourself.
 
 ## `mppTempoSession(options)` — experimental
 
@@ -136,7 +139,16 @@ Options: `realm`, `secret`, `rpcUrl`, `chainId`, `recipient` (payee), `token`, `
 
 ## Verification status
 
-Everything here was tested **only against in-process fakes and published vectors**, never against Stripe or a Tempo node:
+Everything here was tested **only against in-process fakes and published vectors**, never against Stripe or a Tempo node.
+
+**Rail conformance** (`railConformance()` from `tollstile/testing`, `test/conformance.test.ts`):
+
+| Rail | Result |
+|---|---|
+| `mppStripe` | all cases pass; redaction skipped (no evidence is stored) |
+| `mppTempo` pull | all cases pass |
+| `mppTempo` push | all run cases pass (a failed handler leaves the charge `settled/failed`). The settle-fault and tamper cases are skipped: the rail never settles push payments, and a tampered push proof is itself an on-chain transfer the kit would count as a settlement |
+| `mppTempoSession` | not run: experimental, reusable authorization whose settlement is off-chain until close |
 
 - Challenge ids: mppx 0.9.3's HMAC test vectors (`test-vector-secret`), JCS: RFC 8785 examples.
 - Stripe: an in-memory Stripe with idempotency replay/conflict, Search visibility lag, refunds, declines, 5xx, and dropped connections.

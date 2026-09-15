@@ -42,9 +42,10 @@ export const TEST_RECEIPT_META = 'tollstile/test-receipt';
 /**
  * A rail with a fake provider, for local development and tests. Send `Payment: test` to pay.
  *
- * Parameters: `Payment: test quote=<token> proof=<id> payer=<id> amount=$0.01 limit=$1.00`.
+ * Parameters: `Payment: test quote=<token> proof=<id> payer=<id> amount=$0.01 limit=$1.00 paymentId=<id>`.
  * `quote` pins the price you were offered. Without `proof`, every request is a fresh payment.
- * `limit` sets the capacity of a reusable authorization. Over MCP, send the same string in
+ * `limit` sets the capacity of a reusable authorization. `paymentId` stands in for a protocol payment
+ * identifier, used as the idempotency key when the client sends none. Over MCP, send the same string in
  * `_meta["tollstile/test-payment"]`.
  */
 export function testRail(options: TestRailOptions = {}): TestRail {
@@ -114,6 +115,7 @@ export function testRail(options: TestRailOptions = {}): TestRail {
       const proofId = parameters.get('proof') ?? context.requestId;
       const payer = parameters.get('payer') ?? 'test-payer';
       const signature = parameters.get('signature');
+      const paymentId = parameters.get('paymentId');
       const verified = {
         status: 'valid',
         proofId,
@@ -122,6 +124,7 @@ export function testRail(options: TestRailOptions = {}): TestRail {
         limit: limit === undefined ? price : parseMoney(limit),
         expiresAt: null,
         data: signature === undefined ? { proofId, payer } : { proofId, payer, signature },
+        ...(paymentId === undefined ? {} : { idempotencyKey: paymentId }),
       } as const;
       if (simulation.verify !== 'paid' || price === null) return verified;
 

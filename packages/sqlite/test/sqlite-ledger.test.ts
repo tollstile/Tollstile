@@ -14,6 +14,7 @@ import {
   type Gate,
   type Outcome,
   type Rail,
+  type TestRailOptions,
 } from 'tollstile';
 import { fakeClock, httpContext } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
@@ -94,6 +95,7 @@ describe('sqliteLedger', () => {
     flow: 'authorization' as const,
     amount: money('USD', 10_000n),
     fulfillment: 'running' as const,
+    requestHash: null,
     at,
   });
   const history = (db: DatabaseSync, chargeId: string) =>
@@ -240,10 +242,10 @@ describe('sqliteLedger', () => {
 });
 
 describe('with createTollstile', () => {
-  function setup() {
+  function setup(railOptions: TestRailOptions = {}) {
     const clock = fakeClock();
     const ledger = ledgerFor(clock);
-    const rail = testRail();
+    const rail = testRail(railOptions);
     const errors: Error[] = [];
     const toll = createTollstile({
       rails: [rail],
@@ -256,8 +258,9 @@ describe('with createTollstile', () => {
     return { clock, ledger, rail, toll, errors };
   }
 
-  async function call<Rails extends readonly Rail[]>(gate: Gate<Rails>, payment?: string, outcome: Outcome = 'succeeded', principal?: { id: string }) {
+  async function call<Rails extends readonly Rail[]>(gate: Gate<Rails>, payment?: string, outcome: Outcome = 'succeeded', principal?: { id: string }, idempotencyKey?: string) {
     const headers = new Headers(payment === undefined ? {} : { payment });
+    if (idempotencyKey !== undefined) headers.set('idempotency-key', idempotencyKey);
     const context = httpContext(new Request('http://localhost/weather', { headers }), principal === undefined ? {} : { principal });
     const entry = await gate.enter(context);
     if (entry.kind === 'denied') {
@@ -279,7 +282,7 @@ describe('with createTollstile', () => {
     expect(paid.status).toBe(200);
     expect(await ledger.getCharge(paid.chargeId ?? '')).toMatchObject({ payment: 'settled', fulfillment: 'completed', amount: money('USD', 10_000n) });
 
-    expect(await call(gate, 'test proof=p1')).toMatchObject({ status: 402, body: { reason: 'proof_already_used' } });
+    expect(await call(gate, 'test proof=p1')).toMatchObject({ status: 409, body: { error: { code: 'proof_already_used' } } });
     expect(rail.effects.settlements).toBe(1);
   });
 
@@ -307,6 +310,19 @@ describe('with createTollstile', () => {
     expect((await ledger.getAuthorization(authorizationId))?.data).toEqual({ proofId: 'p1', payer: 'test-payer' });
   });
 
+  it('answers a reusable credential retried with the same idempotency key as already paid, and settles once', async () => {
+    const { toll, rail, ledger } = setup({ authorization: 'reusable' });
+    const gate = toll.price('$0.10');
+
+    const first = await call(gate, 'test proof=c limit=$1', 'succeeded', undefined, 'order-1');
+    const retry = await call(gate, 'test proof=c limit=$1', 'succeeded', undefined, 'order-1');
+
+    expect(first.status).toBe(200);
+    expect(retry).toMatchObject({ status: 409, body: { error: { code: 'already_paid' }, chargeId: first.chargeId } });
+    expect(rail.effects.settled).toEqual([100_000n]);
+    expect((await ledger.getCharge(first.chargeId ?? ''))?.requestHash).toEqual(expect.any(String));
+  });
+
   it('accepts the same proof again after the handler failed, and settles once', async () => {
     const { toll, rail, ledger } = setup();
     const gate = toll.price('$0.01');
@@ -314,7 +330,7 @@ describe('with createTollstile', () => {
     const failed = await call(gate, 'test proof=p1', 'failed');
     expect(await ledger.getCharge(failed.chargeId ?? '')).toMatchObject({ payment: 'released', fulfillment: 'failed' });
     expect((await call(gate, 'test proof=p1')).status).toBe(200);
-    expect((await call(gate, 'test proof=p1')).status).toBe(402);
+    expect((await call(gate, 'test proof=p1')).status).toBe(409);
     expect(rail.effects).toMatchObject({ settlements: 1, releases: 1 });
   });
 

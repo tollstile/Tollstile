@@ -98,7 +98,7 @@ describe('mppTempoSession charges', () => {
     await get(gate, { authorization: proof });
 
     const replay = await get(gate, { authorization: proof });
-    expect(replay).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'payment_rejected' } });
+    expect(replay).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'payment_rejected' } } });
     expect(charges()).toEqual(['settled/completed', 'failed/pending']);
   });
 
@@ -108,8 +108,8 @@ describe('mppTempoSession charges', () => {
     await get(gate, { authorization: voucher(await challengeFor(gate), 10_000n) });
     await get(gate, { authorization: voucher(await challengeFor(gate), 20_000n) });
 
-    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 20_000n) })).body.reason).toBe('insufficient_authorization');
-    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 30_000n) })).body.reason).toBe('amount_exceeds_deposit');
+    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 20_000n) })).body.error).toMatchObject({ code: 'insufficient_authorization' });
+    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 30_000n) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'amount_exceeds_deposit' });
   });
 
   it('refunds a failed call by not counting it, so the next voucher need not cover it', async () => {
@@ -138,17 +138,28 @@ describe('mppTempoSession charges', () => {
   });
 });
 
+describe('mppTempoSession payer', () => {
+  it('records the payer as a lowercase did:pkh even when the descriptor is checksummed', async () => {
+    const { toll, voucher, descriptor, payer, ledger } = sessionSetup();
+    const gate = toll.price('$0.01');
+    const mixedCase = { ...descriptor, payer: `0x${payer.address.slice(2).toUpperCase()}` as const };
+
+    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 10_000n, { descriptor: mixedCase }) })).status).toBe(200);
+    expect(ledger.authorizations()[0]?.payer).toBe(`did:pkh:eip155:${String(CHAIN_ID)}:${payer.address}`);
+  });
+});
+
 describe('mppTempoSession verification failures', () => {
   it('refuses vouchers that are not the channel payer’s, or not for this payee', async () => {
     const { toll, voucher, descriptor, channel } = sessionSetup();
     const gate = toll.price('$0.01');
     const challenge = await challengeFor(gate);
 
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { signer: wallet() }) })).body.reason).toBe('signature_invalid');
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { descriptor: { ...descriptor, payee: wallet().address } }) })).body.reason).toBe('channel_terms_mismatch');
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { descriptor: { ...descriptor, salt: random32() } }) })).body.reason).toBe('channel_id_mismatch');
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { channel: `${channel.slice(0, -1)}${channel.endsWith('0') ? '1' : '0'}` }) })).body.reason).toMatch(/channel_id_mismatch|signature_invalid/);
-    expect((await get(gate, { authorization: authorization(challenge, { action: 'open', type: 'transaction' }) })).body.reason).toBe('session_action_unsupported');
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { signer: wallet() }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'signature_invalid' });
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { descriptor: { ...descriptor, payee: wallet().address } }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'channel_terms_mismatch' });
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { descriptor: { ...descriptor, salt: random32() } }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'channel_id_mismatch' });
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { channel: `${channel.slice(0, -1)}${channel.endsWith('0') ? '1' : '0'}` }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: expect.stringMatching(/channel_id_mismatch|signature_invalid/) as unknown });
+    expect((await get(gate, { authorization: authorization(challenge, { action: 'open', type: 'transaction' }) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'session_action_unsupported' });
   });
 
   it('refuses channels that are unknown or closing, and answers 503 when the node is down', async () => {
@@ -157,9 +168,9 @@ describe('mppTempoSession verification failures', () => {
     const challenge = await challengeFor(gate);
 
     node.channels.set(channel, { settled: 0n, deposit: 50_000n, closeRequestedAt: 1_767_225_600n });
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n) })).body.reason).toBe('channel_closing');
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'channel_closing' });
     node.channels.delete(channel);
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n) })).body.reason).toBe('channel_not_found');
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'channel_not_found' });
     node.simulate({ read: 'down' });
     expect(await get(gate, { authorization: voucher(challenge, 10_000n) })).toMatchObject({ status: 503, handlerRuns: 0 });
   });
@@ -169,8 +180,8 @@ describe('mppTempoSession verification failures', () => {
     node.channels.set(channel, { settled: 30_000n, deposit: 50_000n, closeRequestedAt: 0n });
     const gate = toll.price('$0.01');
 
-    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 10_000n) })).body.reason).toBe('voucher_below_settled');
-    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 30_000n) })).body.reason).toBe('payment_rejected');
+    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 10_000n) })).body.error).toMatchObject({ code: 'proof_invalid', detail: 'voucher_below_settled' });
+    expect((await get(gate, { authorization: voucher(await challengeFor(gate), 30_000n) })).body.error).toMatchObject({ code: 'payment_rejected' });
     expect((await get(gate, { authorization: voucher(await challengeFor(gate), 40_000n) })).status).toBe(200);
     expect(ledger.authorizations()[0]?.limit).toEqual(money('USD', 20_000n));
   });

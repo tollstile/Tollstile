@@ -35,7 +35,19 @@ Signature-Input: sig1=("@authority" "@method" "@path" "signature-agent";key="sig
 Signature: sig1=:…:
 ```
 
-Otherwise the response is `403` with `{ "error": "requirement_failed", "requirement": "verified-agent", "reason": "…" }`, or `503` with reason `directory_unavailable` when the agent's key directory cannot be reached right now.
+Otherwise the request is denied before anything is reserved. A refused signature is `403`:
+
+```json
+{
+  "error": { "code": "requirement_failed", "retryable": false, "action": "stop", "message": "…", "detail": "signature_invalid" },
+  "requirement": "verified-agent",
+  "resource": "GET /data"
+}
+```
+
+When the agent's key directory cannot be reached right now, the response is `503` with a `Retry-After` header and `"code": "requirement_unavailable"`, `"action": "retry_later"`, `"detail": "directory_unavailable"`.
+
+Branch on `error.code` and `error.action`. `error.detail` is one of the stable snake_case identifiers below, suitable for logs and metrics.
 
 ## Options
 
@@ -62,7 +74,7 @@ In this order, for each signature whose `tag` is `web-bot-auth` (the first that 
 7. The algorithm follows from the key (`ed25519`, `ecdsa-p256-sha256`, `ecdsa-p384-sha384`, `rsa-pss-sha512`); a signature `alg` must agree. RSA keys must name `PS512`/`rsa-pss-sha512` in the key or the signature.
 8. A `nonce`, if present, is claimed once per directory and key until the signature could no longer be accepted.
 
-| Reason | Meaning |
+| `error.detail` | Meaning |
 |---|---|
 | `http_request_required` | MCP call, or no HTTP request in the context. MCP tool calls are never attributed to a signed HTTP request. |
 | `signature_missing` / `signature_malformed` / `tag_missing` | No usable Web Bot Auth signature. |
@@ -79,7 +91,7 @@ In this order, for each signature whose `tag` is `web-bot-auth` (the first that 
 ## Directory discovery
 
 - `GET https://<origin>/.well-known/http-message-signatures-directory` with `redirect: "manual"`; only `200` is accepted. Unreachable directories and 5xx are `directory_unavailable` (503); redirects, other statuses, bodies over 64 KiB, more than 32 keys, or malformed JSON are `directory_invalid` (403). Unsupported or malformed key entries are skipped.
-- Unavailability is returned as `{ ok: false, status: 503 }` rather than thrown as `PROVIDER_UNAVAILABLE`, so the response keeps the specific reason; either way nothing is reserved.
+- Unavailability is returned as `{ ok: false, status: 503 }` rather than thrown as `PROVIDER_UNAVAILABLE`, so `error.detail` stays `directory_unavailable`; either way nothing is reserved.
 - Concurrent requests for the same origin share one fetch, bounded by the signal of the request that started it. At most 1,024 directories are cached.
 - A directory that resolves replaces the cached one, so a removed key stops verifying. A failed fetch of either kind is not evidence: the cached directory keeps verifying for up to 24 hours past its expiry, and the origin is not retried for 30 seconds.
 - The cache and in-flight fetches are per `verifiedAgent()` instance and per process.

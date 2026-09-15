@@ -63,8 +63,20 @@ describe('@tollstile/hono', () => {
     const response = await app.request('/weather', { headers: { payment: 'test proof=r1' } });
 
     expect(response.status).toBe(402);
-    expect(await response.json()).toMatchObject({ reason: 'settlement_rejected' });
+    expect(await response.json()).toMatchObject({ error: { code: 'settlement_rejected' } });
     expect(response.headers.get('payment-receipt')).toBeNull();
+    expect(runs()).toBe(1);
+  });
+
+  it('forwards Idempotency-Key, so a retried request is not paid or run twice', async () => {
+    const { app, rail, runs } = setup();
+    const headers = { payment: 'test proof=once', 'idempotency-key': 'order-7' };
+    expect((await app.request('/weather', { headers })).status).toBe(200);
+
+    const retry = await app.request('/weather', { headers });
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ error: { code: 'already_paid', action: 'stop' } });
+    expect(rail.effects.settlements).toBe(1);
     expect(runs()).toBe(1);
   });
 

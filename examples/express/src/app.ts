@@ -13,7 +13,7 @@ app.get(
 );
 
 // A price computed from the request body that express.text() parsed. The quote commits to that body,
-// so the paid retry must send the same text; different text gets a fresh 402 with reason "quote_mismatch".
+// so the paid retry must send the same text; different text gets a fresh 402 with error code "quote_mismatch".
 app.post(
   '/translate',
   express.text(),

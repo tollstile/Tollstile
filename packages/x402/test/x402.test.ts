@@ -3,7 +3,7 @@ import { mcpContext } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
 import type { X402Data } from '../src/index';
 import { FACILITATOR_URL, RPC_URL, USDC } from './fake-network';
-import { call, challenge, decodeHeader, FACILITATOR_ADDRESS, pay, PAY_TO, PAYER, setup, sign } from './helpers';
+import { call, challenge, decodeHeader, FACILITATOR_ADDRESS, pay, PAY_TO, PAYER, PAYER_ID, setup, sign } from './helpers';
 
 describe('challenge', () => {
   it('answers 402 with an x402 V2 PAYMENT-REQUIRED header that carries the quote, and writes nothing', async () => {
@@ -15,6 +15,7 @@ describe('challenge', () => {
     expect(paymentRequired).toEqual({
       x402Version: 2,
       resource: { url: 'http://localhost/weather' },
+      extensions: { 'payment-identifier': { info: { required: false }, schema: expect.objectContaining({ required: ['required'] }) as unknown } },
       accepts: [
         {
           scheme: 'exact',
@@ -56,11 +57,11 @@ describe('exact', () => {
       success: true,
       transaction: expect.stringMatching(/^0x[0-9a-f]{64}$/) as unknown,
       network: 'eip155:84532',
-      payer: PAYER,
+      payer: PAYER_ID,
       amount: '10000',
     });
     expect(charges()).toEqual(['settled/completed']);
-    expect(ledger.authorizations()[0]).toMatchObject({ rail: 'x402', payer: PAYER, kind: 'single', limit: { currency: 'USD', micros: 10_000n } });
+    expect(ledger.authorizations()[0]).toMatchObject({ rail: 'x402', payer: PAYER_ID, kind: 'single', limit: { currency: 'USD', micros: 10_000n } });
   });
 
   it('charges the quoted price on a dynamic route even if the price changed before the retry', async () => {
@@ -105,7 +106,7 @@ describe('exact', () => {
     const forged = { ...accepted, ...tampered };
 
     const result = await call(gate, { payment: sign(forged, clock.now()) });
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'accepted_mismatch' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'accepted_mismatch' } } });
     expect(network.calls.verify).toHaveLength(0);
   });
 
@@ -116,8 +117,8 @@ describe('exact', () => {
     const recipient = await pay(gate, clock.now(), { to: '0x0000000000000000000000000000000000000001' });
     const amount = await pay(gate, clock.now(), { value: '1' });
 
-    expect(recipient.result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'recipient_mismatch' } });
-    expect(amount.result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'amount_mismatch' } });
+    expect(recipient.result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'recipient_mismatch' } } });
+    expect(amount.result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'amount_mismatch' } } });
     expect(network.calls.verify).toHaveLength(0);
   });
 
@@ -134,15 +135,15 @@ describe('exact', () => {
     clock.advance(5 * 60_000 + 1);
     const expired = await call(gate, { payment: sign(accepted, clock.now()) });
 
-    expect(forged).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'quote_invalid' } });
-    expect(expired).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'quote_invalid' } });
+    expect(forged).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'quote_invalid' } } });
+    expect(expired).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'quote_invalid' } } });
   });
 
   it('passes on the facilitator rejection reason', async () => {
     const { toll, clock } = setup();
     const { result } = await pay(toll.price('$0.01'), clock.now(), { validBefore: BigInt(Math.floor(clock.now().getTime() / 1000)) });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'invalid_exact_evm_payload_authorization_valid_before' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'invalid_exact_evm_payload_authorization_valid_before' } } });
   });
 
   it('answers 503 without running the handler when the facilitator cannot verify', async () => {
@@ -159,21 +160,49 @@ describe('exact', () => {
     const timedOut = await pay(slow.toll.price('$0.01'), slow.clock.now());
 
     for (const [result, context] of [[down, unreachable], [unexpected, confused], [timedOut, slow]] as const) {
-      expect(result.result).toMatchObject({ status: 503, handlerRuns: 0, body: { error: 'payment_unavailable' } });
+      expect(result.result).toMatchObject({ status: 503, handlerRuns: 0, body: { error: { code: 'payment_unavailable' } } });
       expect(context.ledger.charges()).toHaveLength(0);
     }
     expect(timedOut.result.status).toBe(503);
     expect(slow.errors()[0]).toMatchObject({ code: 'PROVIDER_TIMEOUT' });
   });
 
-  it('refuses a replayed payment and settles it once', async () => {
+  it('answers a payment replayed after it settled with 409 instead of asking to pay again', async () => {
     const { toll, clock, network } = setup();
     const gate = toll.price('$0.01');
     const { payment } = await pay(gate, clock.now());
 
+    // The facilitator rejects the used nonce; the rail still names the authorization it paid for.
     const replay = await call(gate, { payment });
-    expect(replay).toMatchObject({ status: 402, handlerRuns: 0 });
+    expect(replay).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'proof_already_used' } } });
+    expect(network.calls.verify).toHaveLength(2);
     expect(network.settlements).toBe(1);
+  });
+
+  it('answers a retry of a settled request with the same Idempotency-Key as already_paid, even after its quote expired', async () => {
+    const { toll, clock, network, ledger } = setup();
+    const gate = toll.price('$0.01');
+    const { paymentRequired } = await challenge(gate);
+    const [accepted] = paymentRequired.accepts;
+    if (accepted === undefined) throw new Error('expected an offer');
+    const payment = sign(accepted, clock.now());
+    expect((await call(gate, { payment, idempotencyKey: 'order-42' })).status).toBe(200);
+
+    clock.advance(10 * 60_000);
+    const retry = await call(gate, { payment, idempotencyKey: 'order-42' });
+    expect(retry).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect(JSON.stringify(retry.body)).toContain(ledger.charges()[0]?.id ?? 'missing');
+    expect(network.settlements).toBe(1);
+  });
+
+  it('asks to pay again when the facilitator rejects the signature, since a forged payload proves no identity', async () => {
+    const { toll, clock, network } = setup();
+    const gate = toll.price('$0.01');
+    const { payment } = await pay(gate, clock.now());
+
+    network.simulate('verify-bad-signature');
+    const forged = await call(gate, { payment });
+    expect(forged).toMatchObject({ status: 402, body: { error: { code: 'proof_invalid', detail: 'invalid_exact_evm_payload_signature' } } });
   });
 
   it('lets one of two concurrent requests with the same payment through', async () => {
@@ -185,8 +214,8 @@ describe('exact', () => {
     const payment = sign(accepted, clock.now());
 
     const results = await Promise.all([call(gate, { payment }), call(gate, { payment })]);
-    expect(results.map((result) => result.status).sort()).toEqual([200, 402]);
-    expect(results.find((result) => result.status === 402)?.body.reason).toBe('proof_already_used');
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+    expect(results.find((result) => result.status === 409)?.body.error).toMatchObject({ code: 'proof_already_used' });
     expect(network.settlements).toBe(1);
   });
 
@@ -203,6 +232,44 @@ describe('exact', () => {
     expect(network.settlements).toBe(1);
   });
 
+  it('uses the payment-identifier extension as the idempotency key', async () => {
+    const { toll, clock, network, ledger } = setup();
+    const gate = toll.price('$0.01');
+    const { paymentRequired } = await challenge(gate);
+    const [accepted] = paymentRequired.accepts;
+    if (accepted === undefined) throw new Error('expected an offer');
+    const payment = sign(accepted, clock.now(), { paymentId: 'pay_7d5d747be160e280504c099d984bcfe0' });
+
+    expect((await call(gate, { payment })).status).toBe(200);
+    const retry = await call(gate, { payment });
+    expect(retry).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect(network.settlements).toBe(1);
+    expect(ledger.charges()).toHaveLength(1);
+
+    const malformed = await call(gate, { payment: sign(accepted, clock.now(), { nonce: 2, paymentId: 'short' }) });
+    expect(malformed).toMatchObject({ status: 402, body: { error: { code: 'proof_invalid', detail: 'payment_identifier_invalid' } } });
+  });
+
+  it('answers an in-flight retry with the same payment identifier as request_in_progress', async () => {
+    const { toll, clock, network } = setup();
+    const gate = toll.price('$0.01');
+    const { paymentRequired } = await challenge(gate);
+    const [accepted] = paymentRequired.accepts;
+    if (accepted === undefined) throw new Error('expected an offer');
+    const payment = sign(accepted, clock.now(), { paymentId: 'pay_7d5d747be160e280504c099d984bcfe0' });
+    const { httpContext } = await import('tollstile/testing');
+    const request = () => new Request('http://localhost/weather', { headers: { 'payment-signature': btoa(JSON.stringify(payment)) } });
+
+    const first = await gate.enter(httpContext(request()));
+    if (first.kind !== 'admitted') throw new Error('expected admission');
+    const retry = await gate.enter(httpContext(request()));
+    if (retry.kind !== 'denied') throw new Error('expected a denial');
+    expect(retry.denial).toMatchObject({ status: 409, error: { code: 'request_in_progress' } });
+
+    expect((await first.pass.complete('succeeded')).settlement).toBe('settled');
+    expect(network.settlements).toBe(1);
+  });
+
   it.each(['settle-rejected', 'settle-rejected-non-2xx'] as const)('records a rejected settlement as failed (%s)', async (mode) => {
     const { toll, clock, network, charges, errors } = setup();
     const gate = toll.price('$0.01');
@@ -213,7 +280,7 @@ describe('exact', () => {
     network.simulate(mode);
 
     const result = await call(gate, { payment });
-    expect(result).toMatchObject({ status: 402, handlerRuns: 1, settlement: 'rejected', body: { reason: 'settlement_rejected' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 1, settlement: 'rejected', body: { error: { code: 'settlement_rejected' } } });
     expect(result.headers.get('payment-required')).not.toBeNull();
     expect(result.headers.get('payment-response')).toBeNull();
     expect(charges()).toEqual(['failed/completed']);
@@ -336,7 +403,7 @@ describe('redaction', () => {
     const [charge] = context.ledger.charges();
     if (authorization === undefined || charge === undefined) throw new Error('expected a settled charge');
     expect(JSON.stringify(authorization.data)).not.toContain(signature);
-    expect(authorization.data).toMatchObject({ paymentPayload: null, paymentRequirements: null, payer: PAYER, nonce: `0x${'1'.padStart(64, '0')}` });
+    expect(authorization.data).toMatchObject({ paymentPayload: null, paymentRequirements: null, payer: PAYER_ID, nonce: `0x${'1'.padStart(64, '0')}` });
 
     context.clock.advance(10_000);
     const lookup = await context.rail.lookup({ ...authorization, data: authorization.data as X402Data }, charge, { key: 'k', signal: new AbortController().signal });
@@ -376,7 +443,7 @@ describe('redaction', () => {
     const context = setup();
     const pass = await enter(context);
     context.network.simulate('settle-rejected');
-    expect((await pass.complete('succeeded')).denial?.body).toMatchObject({ reason: 'settlement_rejected' });
+    expect((await pass.complete('succeeded')).denial?.body).toMatchObject({ error: { code: 'settlement_rejected' } });
     expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).not.toContain(signature);
   });
 });
@@ -405,8 +472,8 @@ describe('upto', () => {
     const spender = await pay(gate, clock.now(), { spender: '0x0000000000000000000000000000000000000002' });
     const facilitator = await pay(gate, clock.now(), { facilitator: '0x0000000000000000000000000000000000000003' });
 
-    expect(spender.result.body.reason).toBe('spender_mismatch');
-    expect(facilitator.result.body.reason).toBe('facilitator_mismatch');
+    expect(spender.result.body.error).toMatchObject({ code: 'proof_invalid', detail: 'spender_mismatch' });
+    expect(facilitator.result.body.error).toMatchObject({ code: 'proof_invalid', detail: 'facilitator_mismatch' });
     expect(network.calls.verify).toHaveLength(0);
   });
 
@@ -499,7 +566,7 @@ describe('mcp', () => {
     expect(settlement).toBe('settled');
 
     expect(receipt.headers).toEqual([]);
-    expect(receipt.meta['x402/payment-response']).toMatchObject({ success: true, network: 'eip155:84532', payer: PAYER, amount: '10000' });
+    expect(receipt.meta['x402/payment-response']).toMatchObject({ success: true, network: 'eip155:84532', payer: PAYER_ID, amount: '10000' });
   });
 });
 

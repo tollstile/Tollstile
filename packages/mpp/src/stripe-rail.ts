@@ -10,7 +10,7 @@ import {
   type Rail,
 } from 'tollstile';
 import { asciiRealm, challengeSecrets, quoteChallenge } from './challenge';
-import { chargeTerms, readCredential, sameRequest } from './credential';
+import { chargeTerms, readCredential, rejected, sameRequest } from './credential';
 import { isIntegerString, isObject } from './encoding';
 import { paymentReceipt } from './receipt';
 import {
@@ -128,9 +128,10 @@ export function mppStripe(options: MppStripeOptions): MppStripeRail {
     throw new TollstileError('CONFIG_INVALID', 'mppStripe() needs `networkId`, your Stripe Business Network Profile id.');
   }
 
-  // SPTs are bearer tokens: they stay in memory between verify and settle, which run in the same
-  // request, and never reach the ledger. Keyed by request, so a concurrent replay cannot swap the
-  // token another request is about to settle with. Entries expire with their challenge.
+  // SPTs are bearer tokens: they stay in memory, never in the ledger, until their challenge expires.
+  // Keyed by request, so a concurrent replay cannot swap the token another request settles with.
+  // Keeping the token after settlement lets a repeated settle replay the PaymentIntent through
+  // Stripe's idempotency instead of failing; after expiry the token is useless to Stripe anyway.
   const tokens = new Map<string, { readonly spt: string; readonly expiresAt: number }>();
 
   const request = (amount: bigint, currency: string): JsonObject => ({
@@ -178,11 +179,12 @@ export function mppStripe(options: MppStripeOptions): MppStripeRail {
       for (const [id, entry] of tokens) if (entry.expiresAt <= now.getTime()) tokens.delete(id);
 
       const read = await readCredential(context, { realm, method: METHOD, intent: INTENT, secrets, now });
-      if (read.status !== 'present') return read;
+      if (read.status === 'absent') return read;
+      if (read.status === 'invalid') return rejected(read);
       const { credential } = read;
 
       const resolved = await chargeTerms(credential, terms, NAME);
-      if (resolved.status === 'invalid') return resolved;
+      if (resolved.status === 'invalid') return rejected(resolved);
       const minor = resolved.offer === null ? minorUnits(resolved.price) : { amount: BigInt(resolved.offer.amount) };
       if (minor === undefined) return { status: 'invalid', reason: 'price_not_payable' };
       if (!sameRequest(credential, request(minor.amount, resolved.price.currency))) {
@@ -203,13 +205,15 @@ export function mppStripe(options: MppStripeOptions): MppStripeRail {
         limit: resolved.price,
         expiresAt: new Date(Date.parse(credential.challenge.expires)),
         data: { challengeId, amount: minor.amount.toString(), currency: resolved.price.currency.toLowerCase() },
+        // A challenge is issued for one 402 and paid once: every retry of that credential is the same
+        // logical request, the same key Stripe deduplicates the PaymentIntent on.
+        idempotencyKey: challengeId,
       };
     },
 
     async settle(authorization, charge, operation) {
       const data = stripeData(authorization);
       const entry = tokens.get(charge.requestId);
-      tokens.delete(charge.requestId);
       if (entry === undefined) {
         throw new TollstileError(
           'PROVIDER_UNAVAILABLE',

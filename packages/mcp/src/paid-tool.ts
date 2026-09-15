@@ -9,7 +9,7 @@ import {
 } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { CallToolResult, RequestInfo, ServerNotification, ServerRequest, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import type { Gate, JsonObject, Payment, Principal, Rail } from 'tollstile';
+import { idempotencyKeyOf, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
 import { isJsonObject, parseJsonObject, parseJsonValue } from './json-object';
 import { DENIAL_META, renderDenial } from './render-denial';
 
@@ -94,6 +94,7 @@ export function paidTool<
       principal: options.principal === undefined ? null : await options.principal(extra),
       resource: gate.resource ?? `tool:${name}`,
       requestId: crypto.randomUUID(),
+      idempotencyKey: idempotencyKeyOf(null, meta),
       extras: extra,
     });
 
@@ -152,8 +153,10 @@ function acceptsMpp(clientCapabilities: JsonObject): boolean {
   return experimental !== undefined && isJsonObject(experimental) && experimental.payment !== undefined;
 }
 
-function invalidRequest(reason: string): CallToolResult {
-  const body = { error: 'invalid_request', reason };
+function invalidRequest(detail: string): CallToolResult {
+  const body = {
+    error: { code: 'invalid_request', retryable: false, action: 'fix_request', message: 'The tool call envelope is not plain JSON.', detail },
+  };
   return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], _meta: { [DENIAL_META]: body } };
 }
 

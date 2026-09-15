@@ -19,6 +19,8 @@ export function fakeStripe() {
   const modes: { payment: StripeMode; refund: StripeMode; read: StripeMode } = { payment: 'ok', refund: 'ok', read: 'ok' };
   /** Search results appear only when this is true, to model index lag. */
   let searchable = true;
+  /** A fault for the next PaymentIntent creation only. */
+  let nextPayment: StripeMode | undefined;
 
   const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -32,7 +34,9 @@ export function fakeStripe() {
       if (modes.read === 'down') throw new TypeError('fetch failed');
       return read(url);
     }
-    const mode = url.pathname === '/v1/refunds' ? modes.refund : modes.payment;
+    const once = url.pathname === '/v1/payment_intents' ? nextPayment : undefined;
+    if (once !== undefined) nextPayment = undefined;
+    const mode = url.pathname === '/v1/refunds' ? modes.refund : (once ?? modes.payment);
     if (mode === 'down') throw new TypeError('fetch failed');
     if (mode === 'server-error') return json(500, { error: { type: 'api_error' } });
 
@@ -104,6 +108,11 @@ export function fakeStripe() {
     setSearchable(value: boolean) {
       searchable = value;
     },
+    failNextPayment(mode: StripeMode) {
+      nextPayment = mode;
+    },
+    /** PaymentIntents that captured money. */
+    succeeded: () => [...intents.values()].filter((intent) => intent.status === 'succeeded').length,
   };
 }
 

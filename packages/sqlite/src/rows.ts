@@ -16,7 +16,7 @@ export const AUTHORIZATION_COLUMNS = `id, rail, payer, kind,
 
 export const CHARGE_COLUMNS = `id, authorization_id, request_id, resource, payer, flow, currency,
   CAST(reserved_micros AS TEXT) AS reserved_micros, CAST(amount_micros AS TEXT) AS amount_micros,
-  payment, fulfillment, pending, settlement_reference, settlement_details, refund_reference, created_at, updated_at`;
+  payment, fulfillment, pending, settlement_reference, settlement_details, refund_reference, request_hash, created_at, updated_at`;
 
 export function parseAuthorization(row: SqliteRow): Authorization {
   const limitCurrency = nullable(row, 'limit_currency', text);
@@ -53,6 +53,7 @@ export function parseCharge(row: SqliteRow): Charge {
     pending: nullable(row, 'pending', (r, column) => oneOf(r, column, pendingOperations)),
     settlement: reference === null ? null : { reference, details: json(row, 'settlement_details') },
     refundReference: nullable(row, 'refund_reference', text),
+    requestHash: nullable(row, 'request_hash', text),
     createdAt: timestamp(row, 'created_at'),
     updatedAt: timestamp(row, 'updated_at'),
   };

@@ -84,10 +84,43 @@ curl -i -H "Authorization: L402 AgE…:<preimage hex>" localhost:3000/weather
 3. Verify the HMAC chain with the key-generator step used by go-macaroon and libmacaroons, against every configured secret, in constant time.
 4. Check `sha256(preimage) == payment_hash`.
 5. Read caveats. The chain signs caveat order, so the first three are the terms this rail minted (`tollstile_quote`, `tollstile_limit`, `tollstile_valid_until`). Anything after them was appended by a holder and may only restrict: `preimage=` must match the presented preimage, a later `tollstile_valid_until` shortens that presentation (not the stored authorization), a restated quote or limit must be identical, and any other condition is refused (`caveat_unsupported`).
-6. Open the quote. If it opens, its price is charged. If it no longer opens — expired, or presented on another resource — the credential is still ours and still prepaid, so the call is charged at the route's current fixed price; a dynamic-price route answers `quote_required`.
+6. Open the quote. If it opens, its price is charged. If it no longer opens — expired, or presented on another resource — the credential is still ours and still prepaid, so the call is charged at the route's current fixed price; a dynamic-price route answers `quote_invalid`, because a paid macaroon's quote cannot be replaced.
 7. Optionally confirm the invoice with the node.
 
-Invalid reasons: `malformed_credential`, `conflicting_credentials`, `multiple_macaroons_unsupported`, `macaroon_invalid`, `preimage_mismatch`, `caveat_missing`, `caveat_malformed`, `caveat_conflict`, `caveat_unsupported`, `credential_expired`, `quote_required`, `currency_mismatch`, `invoice_not_settled`. Every invalid credential gets a `402` with a fresh challenge, which is what aperture does and what `lnget` expects (it drops the cached token and pays again).
+Every invalid credential gets a `402` with a fresh challenge, which is what aperture does and what `lnget` expects (it drops the cached token and pays again). The body's `error.code` is `proof_invalid` and `error.detail` is one of `malformed_credential`, `conflicting_credentials`, `multiple_macaroons_unsupported`, `macaroon_invalid`, `preimage_mismatch`, `caveat_missing`, `caveat_malformed`, `caveat_conflict`, `caveat_unsupported`, `credential_expired`, `currency_mismatch`, `invoice_not_settled`. A credential whose quote no longer opens on a dynamic-price route answers `error.code: "quote_invalid"`. Branch on `code`; `detail` is for logs.
+
+```json
+{
+  "error": {
+    "code": "proof_invalid",
+    "retryable": true,
+    "action": "pay",
+    "message": "The l402 payment was not accepted. Pay again using this response.",
+    "detail": "preimage_mismatch"
+  },
+  "resource": "GET /weather",
+  "price": "$0.01",
+  "variable": false,
+  "quote": "eyJ2Ijox…",
+  "nonce": "ajLohIgxZw627kvbuJFK2A",
+  "expiresAt": "2026-01-01T00:05:00.000Z",
+  "accepts": [
+    {
+      "rail": "l402",
+      "asset": { "code": "BTC", "network": "lightning:signet", "scale": 11 },
+      "amount": "20000",
+      "flow": "authorization",
+      "details": { "scheme": "L402", "header": "authorization", "macaroon": "AgJC…", "invoice": "lntbs…", "paymentHash": "cea5fe72…", "value": "$0.01", "calls": 1, "validUntil": "2026-01-02T00:00:00.000Z" }
+    }
+  ]
+}
+```
+
+**Payer.** `l402:<payment hash>`, lowercase hex. A credential has no payer identity beyond the invoice it paid.
+
+## Retries and idempotency
+
+A credential pays for many calls, and L402 carries no per-request payment identifier, so the rail supplies no idempotency key: **a retried request without one is charged again.** Clients that retry (after a timeout or a dropped connection) should send the same `Idempotency-Key` header on every attempt, or `_meta["tollstile/idempotency-key"]` over MCP. Keys are scoped to the payer, which for L402 is the credential (`l402:<payment hash>`). A retry with the same credential and key finds the original charge: `409 already_paid` once it was consumed, `409 request_in_progress` while it runs, and a new attempt only if the first one gave its value back. This holds after the credential expired or, on a dynamic-price route, after its quote stopped opening: the rail still identifies an authentic credential, so the retry is answered from the ledger instead of a `402`. A retry with a newly bought credential is a different payer and is charged again.
 
 ## MCP
 
@@ -99,7 +132,7 @@ L402 defines no MCP transport. The challenge is `challenge.mcp = { style: "tolls
 - If invoice creation fails, the challenge throws `PROVIDER_UNAVAILABLE`. Core leaves L402 out of that 402 instead of offering an invoice that cannot be paid; other rails' offers are unaffected. If no rail can offer, the answer is `503 payment_unavailable`.
 - The macaroon carries the quote token, so challenge headers are a few kilobytes when several rails are configured.
 - L402 uses the `Authorization` header. Routes that also authenticate callers with `Authorization` cannot use this rail on the same request.
-- **On dynamic-price routes, a credential works only while its quote opens** (core's `quoteTtlMs`, 5 minutes by default, and only on the quoted resource). After that the route answers `quote_required` and `lnget` pays a new invoice, leaving the old credential's remaining value unused. Sell multi-call credentials (`calls > 1`) for fixed-price routes.
+- **On dynamic-price routes, a credential works only while its quote opens** (core's `quoteTtlMs`, 5 minutes by default, and only on the quoted resource). After that the route answers `quote_invalid` and `lnget` pays a new invoice, leaving the old credential's remaining value unused. Sell multi-call credentials (`calls > 1`) for fixed-price routes.
 - A credential's value is fixed in the price currency when it is issued. It can be spent on any route priced in that currency; another currency answers `currency_mismatch`.
 - The `l402-receipt` and `l402-remaining` response headers are Tollstile's; the L402 spec defines no receipt.
 

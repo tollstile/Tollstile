@@ -21,7 +21,7 @@ describe('quotes', () => {
     const { toll } = setup();
     const result = await call(toll.price(() => '$0.42'), { payment: 'test' });
 
-    expect(result).toMatchObject({ status: 402, body: { reason: 'quote_required' } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_required' } } });
   });
 
   it('rejects a tampered quote', async () => {
@@ -32,7 +32,7 @@ describe('quotes', () => {
     const tampered = `${token.slice(0, -2)}${token.endsWith('A') ? 'B' : 'A'}${token.slice(-1)}`;
 
     const result = await call(gate, { payment: `test quote=${tampered}` });
-    expect(result).toMatchObject({ status: 402, body: { reason: 'quote_invalid' } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_invalid' } } });
   });
 
   it('rejects an expired quote', async () => {
@@ -42,7 +42,7 @@ describe('quotes', () => {
 
     clock.advance(1_001);
     const result = await call(gate, { payment: `test quote=${String(challenge.body.quote)}` });
-    expect(result).toMatchObject({ status: 402, body: { reason: 'quote_invalid' } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_invalid' } } });
   });
 
   it('rejects a quote issued for a different resource', async () => {
@@ -51,7 +51,7 @@ describe('quotes', () => {
     const challenge = await call(gate, { path: '/weather' });
 
     const result = await call(gate, { path: '/forecast', payment: `test quote=${String(challenge.body.quote)}` });
-    expect(result).toMatchObject({ status: 402, body: { reason: 'quote_invalid' } });
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_invalid' } } });
   });
 
   it('honors quotes signed with a previous secret during rotation', async () => {

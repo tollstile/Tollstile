@@ -2,7 +2,7 @@ import { compare, TollstileError, type Authorization, type Charge, type Clock, t
 import { weighChargeEvidence } from './charge-evidence';
 import { issuerKeySet, type KeySet } from './key-set';
 import { skyfireApi } from './skyfire-api';
-import { readPaymentTokens, verifyPaymentToken, type PaymentTokenType, type TokenPolicy } from './token';
+import { readPaymentTokens, tokenProofId, verifyPaymentToken, type PaymentTokenType, type TokenPolicy } from './token';
 import { formatUsdDecimal } from './usd-decimal';
 
 export type KyapayEnvironment = 'production' | 'sandbox';
@@ -173,7 +173,7 @@ export function kyapay(options: KyapayOptions): KyapayRail {
       if (rest.length > 0) return { status: 'invalid', reason: 'multiple_payment_tokens' };
 
       const check = await verifyPaymentToken(candidate, policy, clock.now(), operation.signal);
-      if (!check.ok) return { status: 'invalid', reason: check.reason };
+      if (!check.ok) return { status: 'invalid', reason: check.reason, ...(check.proofId === undefined ? {} : { proofId: check.proofId }) };
       const { token } = check;
 
       if (token.confirmation !== null) {
@@ -188,8 +188,9 @@ export function kyapay(options: KyapayOptions): KyapayRail {
 
       return {
         status: 'valid',
-        proofId: `${token.issuer} ${token.tokenId}`,
-        payer: token.subject,
+        proofId: tokenProofId(token.issuer, token.tokenId),
+        // `sub` is unique only per issuer, so the payer id names both: two issuers can never share a buyer.
+        payer: `${token.issuer}#${token.subject}`,
         quote: null,
         limit: token.amount,
         expiresAt: new Date(token.expiresAt * 1000),
@@ -198,6 +199,10 @@ export function kyapay(options: KyapayOptions): KyapayRail {
     },
 
     async settle(authorization, charge, operation) {
+      // A charge the ledger already recorded as settled has moved its reservation into `consumed`, so
+      // the charge list cannot be weighed for it; its recorded settlement is the answer for this key.
+      if (charge.settlement !== null) return { status: 'settled', ...charge.settlement };
+
       // Skyfire has no idempotency key. Core calls settle for a charge on its first attempt (written
       // ahead as `settling`) or after lookup proved it absent, so an undetermined or lagging list does
       // not stop the call. Proof that the charge is already listed does, and so do charges the ledger

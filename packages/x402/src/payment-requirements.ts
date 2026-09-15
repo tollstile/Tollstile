@@ -1,5 +1,6 @@
 import type { Context, JsonObject } from 'tollstile';
 import type { Settings } from './options';
+import { PAYMENT_IDENTIFIER_EXTENSION } from './payment-payload';
 import { containsSubset, jsonEqual } from './wire';
 
 export type Scheme = 'exact' | 'upto';
@@ -53,8 +54,27 @@ export function acceptedMatches(requirements: PaymentRequirements, accepted: Jso
   return jsonEqual(core, acceptedCore) && containsSubset(extra, acceptedExtra);
 }
 
+/** Advertised so clients can name a payment; retries with the same id become idempotent retries. */
+const PAYMENT_IDENTIFIER: JsonObject = {
+  info: { required: false },
+  schema: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object',
+    properties: {
+      required: { type: 'boolean' },
+      id: { type: 'string', minLength: 16, maxLength: 128, pattern: '^[a-zA-Z0-9_-]+$' },
+    },
+    required: ['required'],
+  },
+};
+
 export function paymentRequired(requirements: PaymentRequirements, context: Context): JsonObject {
-  return { x402Version: 2, resource: { url: resourceUrl(context) }, accepts: [requirements] };
+  return {
+    x402Version: 2,
+    resource: { url: resourceUrl(context) },
+    accepts: [requirements],
+    extensions: { [PAYMENT_IDENTIFIER_EXTENSION]: PAYMENT_IDENTIFIER },
+  };
 }
 
 function resourceUrl(context: Context): string {

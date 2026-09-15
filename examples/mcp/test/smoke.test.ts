@@ -19,7 +19,7 @@ const forecast = async (client: Client, payment?: string) =>
   })) as CallToolResult;
 
 const challengeOf = (result: CallToolResult) =>
-  result._meta?.['tollstile/payment-required'] as { price: string; quote: string; reason: string | null };
+  result._meta?.['tollstile/payment-required'] as { price: string; quote: string; error: { code: string } };
 
 describe('mcp example', () => {
   it('returns a payment-required result, then runs the tool once the quote is paid', async () => {
@@ -43,7 +43,7 @@ describe('mcp example', () => {
 
     const forged = await forecast(client, 'test quote=forged');
     expect(forged.isError).toBe(true);
-    expect(challengeOf(forged)).toMatchObject({ reason: 'quote_invalid' });
+    expect(challengeOf(forged)).toMatchObject({ error: { code: 'quote_invalid' } });
 
     await client.close();
   });

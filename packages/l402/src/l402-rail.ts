@@ -9,7 +9,7 @@ import {
   type Receipt,
 } from 'tollstile';
 import { challengeValue, parseCredential } from './credential';
-import { fromHex, toBase64 } from './encoding';
+import { fromHex, toBase64, toHex } from './encoding';
 import { describeInvoice, type InvoiceProvider, type LightningNetwork } from './invoice';
 import { mintToken, readToken } from './token';
 
@@ -147,7 +147,7 @@ export function l402(options: L402Options): L402Rail {
       const details = {
         macaroon,
         invoice: invoice.paymentRequest,
-        paymentHash: invoice.paymentHash,
+        paymentHash: toHex(paymentHash),
         value: formatMoney(value),
         calls: Number(calls),
         validUntil: validUntil.toISOString(),
@@ -172,10 +172,12 @@ export function l402(options: L402Options): L402Rail {
 
       // The macaroon signs the quote caveat, so a quote that no longer opens was ours and has only
       // expired or is presented on another resource. The prepaid value is still owed to the payer:
-      // later calls are charged at the route's current fixed price, and dynamic routes need a fresh quote.
+      // later calls are charged at the route's current fixed price. A dynamic route has no price
+      // without the quote, and the quote cannot be replaced inside a paid macaroon. The credential is
+      // still identified, so a retry of a call it already paid is answered from the ledger.
       const quote = (await terms.openQuote(token.quoteToken)) ?? null;
       const price = quote?.price ?? terms.price;
-      if (price === null) return { status: 'invalid', reason: 'quote_required' };
+      if (price === null) return { status: 'invalid', reason: 'quote_invalid', proofId: token.paymentHash };
       if (price.currency !== token.limit.currency) return { status: 'invalid', reason: 'currency_mismatch' };
 
       if (options.confirmSettled === true) {

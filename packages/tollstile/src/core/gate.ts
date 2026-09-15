@@ -1,6 +1,8 @@
 import { flowFor } from './capabilities';
 import { canonicalJson, deriveId, hex, sha256, sha256Bytes } from './codec';
+import { denialError, denialHeaders, errorJson, statusFor, type DenialCode } from './denials';
 import { TollstileError } from './errors';
+import { isValidIdempotencyKey } from './idempotency';
 import {
   move,
   recordSettled,
@@ -11,7 +13,7 @@ import {
   type Executor,
   type Runtime,
 } from './lifecycle';
-import { compare, formatMoney, parseMoney, type Money } from './money';
+import { compare, formatMoney, parseMoney, subtract, type Money } from './money';
 import { policyExecutor } from './policy-executor';
 import { callProvider } from './provider-call';
 import type { Flow } from './states';
@@ -20,6 +22,7 @@ import type {
   Authorization,
   ChallengeOffer,
   Charge,
+  CreateChargeResult,
   Commitment,
   Completion,
   Context,
@@ -53,6 +56,18 @@ export type Route = {
 type Priced = { readonly price: Money; readonly variable: boolean };
 type Denied = { readonly kind: 'denied'; readonly denial: Denial };
 
+/** Why a request is refused, before it is rendered. `status` is set only by requirements, which choose their own. */
+type Problem = {
+  readonly code: DenialCode;
+  readonly message: string;
+  readonly detail?: string | null;
+  readonly status?: number;
+  readonly extra?: JsonObject;
+};
+
+/** A retry under one idempotency key may be refused this many times before the key must change. */
+const MAX_ATTEMPTS_PER_KEY = 20;
+
 const NO_RECEIPT: Receipt = { headers: [], meta: {} };
 const NOTHING_CHARGED: Completion = { settlement: 'none', receipt: NO_RECEIPT, denial: null };
 
@@ -61,6 +76,9 @@ export function createGate<Rails extends readonly Rail[]>(runtime: Runtime, rout
     resource: route.resource,
     async enter(input) {
       const context = route.resource === undefined ? input : { ...input, resource: route.resource };
+      if (context.idempotencyKey !== null && !isValidIdempotencyKey(context.idempotencyKey)) {
+        return deny(runtime, context, { code: 'invalid_request', message: 'An idempotency key must be 1 to 255 visible ASCII characters.' });
+      }
       if (route.access === undefined) return enterWithPayment<Rails>(runtime, route, context);
 
       let priced: Priced | undefined;
@@ -81,7 +99,7 @@ export function createGate<Rails extends readonly Rail[]>(runtime: Runtime, rout
           }
         }
       }
-      return denied(runtime, context, 403, { error: 'access_denied', resource: context.resource });
+      return deny(runtime, context, { code: 'access_denied', message: 'No access policy admits this caller.' });
     },
   };
 }
@@ -136,7 +154,8 @@ async function admitReservation<Rails extends readonly Rail[]>(
     data: { account },
     at: runtime.clock.now(),
   });
-  const created = await createCharge(runtime, context, authorization, priced.price, 'authorization', 'pending');
+  const created = await createCharge(runtime, route, context, authorization, priced.price, 'authorization', 'pending', context.idempotencyKey);
+  if (created.status === 'denied') return created.denied;
   if (created.status !== 'created') throw unexpectedCharge(created.status, authorization.id);
 
   const reservation = await policy.balance.reserve(account, priced.price, created.charge.id);
@@ -186,7 +205,7 @@ async function enterWithPayment<Rails extends readonly Rail[]>(runtime: Runtime,
     );
     if (!verification.ok) {
       runtime.emit({ type: 'error', error: verification.error, charge: null });
-      return denied(runtime, context, 503, { error: 'payment_unavailable', rail: rail.name });
+      return deny(runtime, context, { code: 'payment_unavailable', message: `The ${rail.name} payment could not be verified right now.`, extra: { rail: rail.name } });
     }
 
     const result = verification.value;
@@ -194,12 +213,51 @@ async function enterWithPayment<Rails extends readonly Rail[]>(runtime: Runtime,
       case 'absent':
         continue;
       case 'invalid':
-        return challenge(runtime, route, context, result.reason);
+        return (await alreadyUsed(runtime, route, context, rail, result.proofId, context.idempotencyKey ?? result.idempotencyKey ?? null)) ?? challenge(runtime, route, context, invalidProof(rail, result.reason));
       case 'valid':
         return admitPayment<Rails>(runtime, route, context, rail, result);
     }
   }
   return challenge(runtime, route, context, undefined);
+}
+
+/**
+ * A rejected proof that identifies an authorization this ledger already charged is a retry, not a
+ * bad payment: telling the client to pay again would make it pay twice for one request.
+ */
+async function alreadyUsed(
+  runtime: Runtime,
+  route: Route,
+  context: Context,
+  rail: Rail,
+  proofId: string | undefined,
+  key: string | null,
+): Promise<Denied | undefined> {
+  if (proofId === undefined) return undefined;
+  const authorization = await runtime.ledger.getAuthorization(await deriveId('auth', rail.name, proofId));
+  if (authorization === undefined) return undefined;
+
+  if (key !== null) {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_KEY; attempt += 1) {
+      const existing = await runtime.ledger.getCharge(await deriveId('chg', 'key', authorization.payer, key, String(attempt)));
+      if (existing === undefined) break;
+      if (existing.payment !== 'released' && existing.payment !== 'refunded') return retried(runtime, route, context, existing);
+    }
+  }
+  if (authorization.kind === 'single' && (authorization.reserved.micros > 0n || authorization.consumed.micros > 0n)) {
+    return deny(runtime, context, {
+      code: 'proof_already_used',
+      message: 'This payment was already used for another request. To retry a request safely, send the same Idempotency-Key.',
+    });
+  }
+  return undefined;
+}
+
+function invalidProof(rail: Rail, reason: string): Problem {
+  if (reason === 'quote_invalid') {
+    return { code: 'quote_invalid', message: 'The quote is forged, expired, or for another resource. Pay with the new quote in this response.' };
+  }
+  return { code: 'proof_invalid', message: `The ${rail.name} payment was not accepted. Pay again using this response.`, detail: reason };
 }
 
 async function admitPayment<Rails extends readonly Rail[]>(
@@ -210,9 +268,9 @@ async function admitPayment<Rails extends readonly Rail[]>(
   proof: Extract<Awaited<ReturnType<Rail['verify']>>, { status: 'valid' }>,
 ): Promise<Entry<Rails>> {
   const terms = await termsFor(route, rail, proof.quote, context);
-  if (typeof terms === 'string') return challenge(runtime, route, context, terms);
+  if ('code' in terms) return challenge(runtime, route, context, terms);
   if (proof.limit !== null && rail.capabilities.authorization === 'single' && compare(proof.limit, terms.price) < 0) {
-    return challenge(runtime, route, context, 'insufficient_authorization');
+    return challenge(runtime, route, context, insufficient(terms.price, proof.limit));
   }
 
   const denial = await checkRequirements(runtime, route, context, proof.payer, terms.price, proof.quote);
@@ -233,17 +291,28 @@ async function admitPayment<Rails extends readonly Rail[]>(
 
   // A payment that moved during verification is recorded as upfront: the money moved before the handler ran.
   const flow = proof.settled === undefined ? terms.flow : 'upfront';
-  const created = await createCharge(runtime, context, opened.authorization, terms.price, flow, flow === 'authorization' ? 'running' : 'pending');
+  const created = await createCharge(
+    runtime,
+    route,
+    context,
+    opened.authorization,
+    terms.price,
+    flow,
+    flow === 'authorization' ? 'running' : 'pending',
+    context.idempotencyKey ?? proof.idempotencyKey ?? null,
+  );
   switch (created.status) {
+    case 'denied':
+      return created.denied;
     case 'busy':
-      return challenge(runtime, route, context, 'proof_already_used');
+      return deny(runtime, context, {
+        code: 'proof_already_used',
+        message: 'This payment was already used for another request. To retry a request safely, send the same Idempotency-Key.',
+      });
     case 'insufficient':
-      return challenge(runtime, route, context, 'insufficient_authorization');
+      return challenge(runtime, route, context, insufficient(terms.price, remaining(opened.authorization)));
     case 'expired':
-      return challenge(runtime, route, context, 'authorization_expired');
-    case 'exists':
-    case 'missing':
-      throw unexpectedCharge(created.status, opened.authorization.id);
+      return challenge(runtime, route, context, { code: 'authorization_expired', message: 'The payment authorization has expired. Pay again using this response.' });
     case 'created':
       break;
   }
@@ -297,15 +366,21 @@ async function termsFor(
   rail: Rail,
   quote: Quote | null,
   context: Context,
-): Promise<(Priced & { readonly flow: Flow }) | 'quote_required' | 'quote_offer_missing' | 'quote_mismatch'> {
+): Promise<(Priced & { readonly flow: Flow }) | Problem> {
   if (quote !== null) {
     const offer = quote.offers.find((candidate) => candidate.rail === rail.name);
-    if (offer === undefined) return 'quote_offer_missing';
+    if (offer === undefined) {
+      return { code: 'quote_offer_missing', message: `The quote has no offer for ${rail.name}. Pay with an offer from this response.` };
+    }
     if (rail.capabilities.authorization === 'reusable') return { ...(await resolvePrice(route, context)), flow: offer.flow };
-    if (quote.commitment !== (await commitmentFor(route, context))) return 'quote_mismatch';
+    if (quote.commitment !== (await commitmentFor(route, context))) {
+      return { code: 'quote_mismatch', message: 'The quote was issued for a different request. Pay with the new quote issued for this one.' };
+    }
     return { price: quote.price, variable: quote.variable, flow: offer.flow };
   }
-  if (route.price.kind === 'dynamic') return 'quote_required';
+  if (route.price.kind === 'dynamic') {
+    return { code: 'quote_required', message: 'This price is computed per request. Pay with the quote in this response.' };
+  }
   return { price: route.price.price, variable: route.price.variable, flow: flowFor(rail, route.flow, route.price.variable, route.name) };
 }
 
@@ -410,9 +485,9 @@ async function settleBefore(
   const settled = await settleCharge(runtime, rail, reserved, 'pending');
   switch (settled.status) {
     case 'rejected':
-      return challenge(runtime, route, context, 'payment_rejected');
+      return challenge(runtime, route, context, { code: 'payment_rejected', message: 'The provider rejected the payment. Pay again using this response.' });
     case 'unknown':
-      return denied(runtime, context, 503, { error: 'payment_outcome_unknown', charge: settled.charge.id });
+      return deny(runtime, context, outcomeUnknown(settled.charge));
     case 'settled':
       break;
   }
@@ -484,16 +559,27 @@ function fulfilledAmount(options: FulfillOptions | undefined, priced: Priced): M
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
+type ChargeAttempt =
+  | Extract<CreateChargeResult, { readonly status: 'created' }>
+  | { readonly status: 'busy' | 'insufficient' | 'expired' }
+  | { readonly status: 'denied'; readonly denied: Denied };
+
+/**
+ * Creates the charge a request runs on. Without an idempotency key, every request is new. With one,
+ * a retry finds the charge its first attempt created and is answered from that charge's state, so a
+ * client that retries after a lost response never pays twice. See SPEC.md §11.
+ */
 async function createCharge(
   runtime: Runtime,
+  route: Route,
   context: Context,
   authorization: Authorization,
   amount: Money,
   flow: Flow,
   fulfillment: 'pending' | 'running',
-) {
-  return runtime.ledger.createCharge({
-    id: await deriveId('chg', authorization.id, context.requestId),
+  key: string | null,
+): Promise<ChargeAttempt> {
+  const charge = {
     authorizationId: authorization.id,
     requestId: context.requestId,
     resource: context.resource,
@@ -502,7 +588,102 @@ async function createCharge(
     amount,
     fulfillment,
     at: runtime.clock.now(),
+  };
+  if (key === null) {
+    const created = await runtime.ledger.createCharge({ ...charge, id: await deriveId('chg', authorization.id, context.requestId), requestHash: null });
+    if (created.status === 'exists' || created.status === 'missing') throw unexpectedCharge(created.status, authorization.id);
+    return created.status === 'created' ? created : { status: created.status };
+  }
+
+  // A key identifies one request; the route's own commitment decides what "the same request" means,
+  // and never less than the request itself.
+  const requestHash = await commitmentFor(route.commit === 'route' ? { ...route, commit: 'request' } : route, context);
+  for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_KEY; attempt += 1) {
+    // Keys are scoped to the payer, not the proof: a client that retries with a freshly signed payment
+    // is still asking for the same request. Payer ids are verified by the rail, so one payer cannot
+    // occupy another's keys.
+    const id = await deriveId('chg', 'key', authorization.payer, key, String(attempt));
+    const created = await runtime.ledger.createCharge({ ...charge, id, requestHash });
+    if (created.status === 'missing') throw unexpectedCharge(created.status, authorization.id);
+    if (created.status === 'created') return created;
+    if (created.status !== 'exists') return { status: created.status };
+
+    const existing = created.charge;
+    if (existing.requestHash !== requestHash) {
+      return { status: 'denied', denied: deny(runtime, context, { code: 'idempotency_key_reused', message: 'This idempotency key was used for a different request.' }) };
+    }
+    // Nothing was kept from a released or refunded attempt, so the request runs again.
+    if (existing.payment === 'released' || existing.payment === 'refunded') continue;
+    return { status: 'denied', denied: await retried(runtime, route, context, existing) };
+  }
+  return {
+    status: 'denied',
+    denied: deny(runtime, context, {
+      code: 'idempotency_key_reused',
+      message: `This idempotency key was retried ${String(MAX_ATTEMPTS_PER_KEY)} times without success. Use a new key.`,
+    }),
+  };
+}
+
+/** Answers a retry from the state of the charge its first attempt created. */
+async function retried(runtime: Runtime, route: Route, context: Context, existing: Charge): Promise<Denied> {
+  const extra = { chargeId: existing.id };
+  switch (existing.payment) {
+    case 'failed':
+      return challenge(runtime, route, context, { code: 'settlement_rejected', message: 'The provider rejected this request\'s payment. Pay again using this response.', extra });
+    case 'unknown':
+      return deny(runtime, context, outcomeUnknown(existing));
+    case 'settled':
+      if (existing.fulfillment === 'completed' || existing.fulfillment === 'failed') {
+        return deny(runtime, context, {
+          code: 'already_paid',
+          message:
+            existing.fulfillment === 'completed'
+              ? `This request was already paid (${existing.id}). It is not charged or run again.`
+              : `This request was paid (${existing.id}) but not delivered, and the payment could not be refunded automatically. Contact the merchant.`,
+          extra: { ...extra, settlement: existing.settlement?.reference ?? null },
+        });
+      }
+      return inProgress(runtime, context, existing);
+    case 'reserved':
+    case 'settling':
+    case 'refund_pending':
+    case 'released':
+    case 'refunded':
+      return inProgress(runtime, context, existing);
+  }
+}
+
+function inProgress(runtime: Runtime, context: Context, existing: Charge): Denied {
+  return deny(runtime, context, {
+    code: 'request_in_progress',
+    message: 'A request with this idempotency key is still being processed.',
+    extra: { chargeId: existing.id },
   });
+}
+
+function outcomeUnknown(charge: Charge): Problem {
+  return {
+    code: 'payment_outcome_unknown',
+    message: 'The settlement outcome is not known yet. Retry later with the same payment and idempotency key.',
+    extra: { chargeId: charge.id },
+  };
+}
+
+function insufficient(required: Money, authorized: Money): Problem {
+  return {
+    code: 'insufficient_authorization',
+    message: `The payment authorizes ${formatMoney(authorized)}; this request costs ${formatMoney(required)}.`,
+    extra: { required: formatMoney(required), authorized: formatMoney(authorized) },
+  };
+}
+
+/** What is left on an authorization; a limitless one never reports insufficient. */
+function remaining(authorization: Authorization): Money {
+  const { limit } = authorization;
+  if (limit === null) return authorization.consumed;
+  const left = subtract(subtract(limit, authorization.consumed), authorization.reserved);
+  return left.micros < 0n ? { currency: left.currency, micros: 0n } : left;
 }
 
 async function checkRequirements(
@@ -526,23 +707,32 @@ async function checkRequirements(
         signal: operation.signal,
       }),
     );
+    const unavailable = `Requirement "${requirement.name}" could not be checked right now.`;
     if (!call.ok) {
       runtime.emit({ type: 'error', error: call.error, charge: null });
-      return denied(runtime, context, 503, { error: 'requirement_unavailable', requirement: requirement.name, reason: call.error.code });
+      return deny(runtime, context, { code: 'requirement_unavailable', message: unavailable, detail: call.error.code, extra: { requirement: requirement.name } });
     }
     const result = call.value;
     if (!result.ok) {
-      return denied(runtime, context, result.status, {
-        error: 'requirement_failed',
-        requirement: requirement.name,
-        reason: result.reason,
-      });
+      return deny(
+        runtime,
+        context,
+        result.status === 503
+          ? { code: 'requirement_unavailable', message: unavailable, detail: result.reason, extra: { requirement: requirement.name } }
+          : {
+              code: 'requirement_failed',
+              status: result.status,
+              message: `Requirement "${requirement.name}" was not met.`,
+              detail: result.reason,
+              extra: { requirement: requirement.name },
+            },
+      );
     }
   }
   return undefined;
 }
 
-async function challenge(runtime: Runtime, route: Route, context: Context, reason: string | undefined): Promise<Denied> {
+async function challenge(runtime: Runtime, route: Route, context: Context, problem: Problem | undefined): Promise<Denied> {
   const priced = await resolvePrice(route, context);
   const available: { readonly rail: Rail; readonly offer: Offer }[] = [];
   for (const rail of runtime.rails) {
@@ -573,12 +763,16 @@ async function challenge(runtime: Runtime, route: Route, context: Context, reaso
     }
   }
   if (available.length > 0 && offers.length === 0) {
-    return denied(runtime, context, 503, { error: 'payment_unavailable', resource: context.resource });
+    return deny(runtime, context, { code: 'payment_unavailable', message: 'No payment rail could issue a challenge right now.' });
   }
 
+  const { code, message, detail = null, extra = {} } = problem ?? {
+    code: 'payment_required',
+    message: `Payment required: ${formatMoney(priced.price)}${priced.variable ? ' at most' : ''} for ${context.resource}.`,
+  };
+  const error = denialError(code, 402, message, detail);
   const body: JsonObject = {
-    error: reason === undefined ? 'payment_required' : 'payment_invalid',
-    reason: reason ?? null,
+    error: errorJson(error),
     resource: context.resource,
     price: formatMoney(priced.price),
     variable: priced.variable,
@@ -592,15 +786,19 @@ async function challenge(runtime: Runtime, route: Route, context: Context, reaso
       flow: offer.flow,
       details: railChallenge.accepts,
     })),
+    ...extra,
   };
-  runtime.emit({ type: 'request.denied', resource: context.resource, status: 402, reason: reason ?? 'payment_required' });
-  return { kind: 'denied', denial: { status: 402, body, headers: [['cache-control', 'no-store']], offers } };
+  runtime.emit({ type: 'request.denied', resource: context.resource, status: 402, code });
+  return { kind: 'denied', denial: { status: 402, error, body, headers: denialHeaders(error), offers } };
 }
 
-function denied(runtime: Runtime, context: Context, status: number, body: JsonObject): Denied {
-  const reason = typeof body.reason === 'string' ? body.reason : typeof body.error === 'string' ? body.error : 'denied';
-  runtime.emit({ type: 'request.denied', resource: context.resource, status, reason });
-  return { kind: 'denied', denial: { status, body, headers: [['cache-control', 'no-store']], offers: [] } };
+/** A denial without a payment challenge. */
+function deny(runtime: Runtime, context: Context, problem: Problem): Denied {
+  const status = problem.status ?? statusFor(problem.code);
+  const error = denialError(problem.code, status, problem.message, problem.detail ?? null);
+  const body: JsonObject = { error: errorJson(error), resource: context.resource, ...problem.extra };
+  runtime.emit({ type: 'request.denied', resource: context.resource, status, code: problem.code });
+  return { kind: 'denied', denial: { status, error, body, headers: denialHeaders(error), offers: [] } };
 }
 
 async function resolvePrice(route: Route, context: Context): Promise<Priced> {
@@ -622,8 +820,11 @@ export function parsePriceInput(input: string | UpTo, name: string): Priced {
  * handler may have read by now; then the payer gets a plain 402 and asks again without payment.
  */
 async function rejectedDenial(runtime: Runtime, route: Route, context: Context): Promise<Denial> {
-  if (context.request === null || !context.request.bodyUsed) return (await challenge(runtime, route, context, 'settlement_rejected')).denial;
-  return denied(runtime, context, 402, { error: 'payment_invalid', reason: 'settlement_rejected', resource: context.resource }).denial;
+  const message = 'The provider rejected settlement, so the output was withheld.';
+  if (context.request === null || !context.request.bodyUsed) {
+    return (await challenge(runtime, route, context, { code: 'settlement_rejected', message: `${message} Pay again using this response.` })).denial;
+  }
+  return deny(runtime, context, { code: 'settlement_rejected', message: `${message} Send the request again without payment for a new quote.` }).denial;
 }
 
 /** Reports a failure to record the outcome (e.g. the ledger is down) before it reaches the adapter. */

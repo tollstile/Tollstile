@@ -29,7 +29,7 @@ export type Rendering =
  */
 export function renderDenial(denial: Denial, clientAcceptsMpp: boolean): Rendering {
   const challenges = denial.offers.map(readChallenge);
-  const reason = typeof denial.body.reason === 'string' ? denial.body.reason : undefined;
+  const reason = denial.error.code === 'payment_required' ? undefined : (denial.error.detail ?? denial.error.code);
 
   const mpp = challenges.flatMap((challenge) => (challenge.style === 'mpp' ? [challenge.challenge] : []));
   if (clientAcceptsMpp && mpp.length > 0) {
@@ -77,7 +77,8 @@ function readChallenge({ offer, challenge }: ChallengeOffer): McpChallenge {
     }
     return { style: 'mpp', challenge: mppChallenge };
   }
-  throw conventionBroken(offer.rail, `has style ${JSON.stringify(mcp.style ?? null)}, not "x402", "mpp", or "tollstile"`);
+  // A convention this adapter does not know still reaches the client through Tollstile's `_meta` form.
+  return { style: 'tollstile' };
 }
 
 function conventionBroken(rail: string, problem: string): TollstileError {

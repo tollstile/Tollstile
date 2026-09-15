@@ -39,6 +39,7 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
         flow: 'authorization',
         amount: usd(10_000n),
         fulfillment: 'running',
+        requestHash: null,
         at: clock.now(),
         ...input,
       });
@@ -132,6 +133,7 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
           pending: null,
           settlement: null,
           refundReference: null,
+          requestHash: null,
           createdAt: clock.now(),
           updatedAt: clock.now(),
         };
@@ -150,6 +152,52 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
 
         expect(await charge({ amount: usd(5_000n), requestId: 'req_other' })).toEqual({ status: 'exists', charge: first });
         expect(await totals()).toEqual({ reserved: 10_000n, consumed: 0n });
+      });
+
+      it('keeps the request hash on create, on exists, and through transitions', async () => {
+        const { ledger, open, charge, created, move } = await setup();
+        await open({ kind: 'reusable', limit: usd(100_000n) });
+
+        const hashed = await created({ id: 'chg_hashed', requestHash: 'sha256:9f86d081884c7d65' });
+        expect(hashed.requestHash).toBe('sha256:9f86d081884c7d65');
+        expect(await charge({ id: 'chg_hashed', requestHash: 'sha256:other' })).toEqual({ status: 'exists', charge: hashed });
+
+        const settling = await move(hashed, state('settling', 'completed'), { pending: 'settle', amount: usd(5_000n) });
+        const settled = await move(settling.charge, state('settled', 'completed'), { pending: null, settlement: { reference: 's_1', details: {} } });
+        expect(settled.charge.requestHash).toBe('sha256:9f86d081884c7d65');
+        expect((await ledger.getCharge('chg_hashed'))?.requestHash).toBe('sha256:9f86d081884c7d65');
+
+        const plain = await created({ id: 'chg_plain', requestHash: null });
+        expect(plain.requestHash).toBeNull();
+        expect(await charge({ id: 'chg_plain', requestHash: 'sha256:late' })).toEqual({ status: 'exists', charge: plain });
+        const released = await move(plain, state('released', 'failed'), { pending: null });
+        expect(released.charge.requestHash).toBeNull();
+        expect((await ledger.getCharge('chg_plain'))?.requestHash).toBeNull();
+      });
+
+      it('returns exists for a charge id created under another authorization, and reserves nothing on this one', async () => {
+        const { open, charge, created, totals } = await setup();
+        await open({ id: 'auth_first', kind: 'reusable', limit: usd(100_000n) });
+        await open({ id: 'auth_second', kind: 'reusable', limit: usd(100_000n) });
+        const first = await created({ id: 'chg_keyed', authorizationId: 'auth_first', requestHash: 'sha256:abc' });
+
+        expect(await charge({ id: 'chg_keyed', authorizationId: 'auth_second', requestHash: 'sha256:abc' })).toEqual({ status: 'exists', charge: first });
+        expect(await totals('auth_first')).toEqual({ reserved: 10_000n, consumed: 0n });
+        expect(await totals('auth_second')).toEqual({ reserved: 0n, consumed: 0n });
+      });
+
+      it('reserves once when the same charge id is created concurrently under two authorizations', async () => {
+        const { open, charge, totals } = await setup();
+        await open({ id: 'auth_first', kind: 'reusable', limit: usd(100_000n) });
+        await open({ id: 'auth_second', kind: 'reusable', limit: usd(100_000n) });
+        const results = await Promise.all([
+          charge({ id: 'chg_keyed', authorizationId: 'auth_first' }),
+          charge({ id: 'chg_keyed', authorizationId: 'auth_second' }),
+        ]);
+
+        expect(results.map((result) => result.status).sort()).toEqual(['created', 'exists']);
+        const [first, second] = [await totals('auth_first'), await totals('auth_second')];
+        expect([first.reserved, second.reserved].sort()).toEqual([0n, 10_000n]);
       });
 
       it('returns missing for an unknown authorization', async () => {

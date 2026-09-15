@@ -340,7 +340,7 @@ describe('@tollstile/express', () => {
     expect(response.status).toBe(402);
     expect(response.headers.get('x-forecast-source')).toBeNull();
     expect(response.headers.get('content-type')).toBe('application/json');
-    expect(await response.json()).toMatchObject({ reason: 'settlement_rejected' });
+    expect(await response.json()).toMatchObject({ error: { code: 'settlement_rejected' } });
   });
 
   it('names the resource after the route path, including the router mount path', async () => {
@@ -365,6 +365,26 @@ describe('@tollstile/express', () => {
     await (await fetch(`${url}/anything/else`, { method: 'POST', headers: PAYMENT })).text();
 
     expect(ledger.charges().map((charge) => charge.resource)).toEqual(['GET /api/users/:id', 'POST /anything/else']);
+  });
+
+  it('forwards Idempotency-Key, so a retried request is not paid twice', async () => {
+    const { toll, rail } = setup();
+    const app = express();
+    app.get(
+      '/weather',
+      paid(toll.price('$0.01'), (_req, res) => {
+        res.json({ forecast: 'clear' });
+      }),
+    );
+    const url = await listen(app);
+    const headers = { payment: 'test proof=once', 'idempotency-key': 'order-7' };
+    expect((await fetch(`${url}/weather`, { headers })).status).toBe(200);
+
+    const retry = await fetch(`${url}/weather`, { headers });
+    expect(retry.status).toBe(409);
+    expect(retry.headers.get('cache-control')).toBe('no-store');
+    expect(await retry.json()).toMatchObject({ error: { code: 'already_paid' } });
+    expect(rail.effects.settlements).toBe(1);
   });
 
   describe('dynamic prices', () => {
@@ -401,7 +421,7 @@ describe('@tollstile/express', () => {
 
       const swapped = await post(url, { text: 'one two three four five six' }, `test quote=${quoted.quote}`);
       expect(swapped.status).toBe(402);
-      expect(await swapped.json()).toMatchObject({ reason: 'quote_mismatch' });
+      expect(await swapped.json()).toMatchObject({ error: { code: 'quote_mismatch' } });
       expect(rail.effects.settlements).toBe(0);
 
       const retried = await post(url, { text: 'hello' }, `test quote=${quoted.quote}`);

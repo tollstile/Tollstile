@@ -5,7 +5,6 @@ import {
   type Context,
   type DynamicPrice,
   type Gate,
-  type JsonObject,
   type Money,
   type Outcome,
   type Rail,
@@ -42,9 +41,10 @@ type Result = { readonly status: number; readonly body: Record<string, unknown>;
 
 async function call(
   gate: Gate<readonly Rail[]>,
-  options: { readonly authorization?: string; readonly path?: string; readonly handler?: () => Outcome } = {},
+  options: { readonly authorization?: string; readonly idempotencyKey?: string; readonly path?: string; readonly handler?: () => Outcome } = {},
 ): Promise<Result> {
   const headers = new Headers(options.authorization === undefined ? {} : { authorization: options.authorization });
+  if (options.idempotencyKey !== undefined) headers.set('idempotency-key', options.idempotencyKey);
   const entry = await gate.enter(httpContext(new Request(`http://localhost${options.path ?? '/weather'}`, { headers })));
   if (entry.kind === 'denied') {
     const response = toResponse(entry.denial);
@@ -74,7 +74,7 @@ describe('challenge', () => {
     expect(result.status).toBe(402);
     expect(result.headers.get('www-authenticate')).toMatch(/^LSAT macaroon="[^"]+", invoice="lnbcrt[^"]+", L402 macaroon="[^"]+", invoice="lnbcrt/);
     expect(result.body).toMatchObject({
-      error: 'payment_required',
+      error: { code: 'payment_required', retryable: true, action: 'pay', detail: null },
       accepts: [
         {
           rail: 'l402',
@@ -101,7 +101,7 @@ describe('challenge', () => {
     const { toll, lnd, events } = setup();
     lnd.setMode('down');
 
-    expect(await call(toll.price('$0.01'))).toMatchObject({ status: 503, body: { error: 'payment_unavailable' } });
+    expect(await call(toll.price('$0.01'))).toMatchObject({ status: 503, body: { error: { code: 'payment_unavailable' } } });
     expect(events.find((event) => event.type === 'error')).toMatchObject({ error: { code: 'PROVIDER_UNAVAILABLE' } });
   });
 
@@ -131,6 +131,8 @@ describe('paying and consuming a credential', () => {
     expect(result.headers.get('l402-remaining')).toBe('$0.00');
     expect(result.headers.get('l402-receipt')).toMatch(/^[0-9a-f]{64}:chg_/);
     expect(context.charges()).toEqual(['settled/completed']);
+    expect(context.ledger.charges()[0]?.payer).toBe(`l402:${String(context.lnd.invoices.keys().next().value)}`);
+    expect(context.ledger.charges()[0]?.payer).toMatch(/^l402:[0-9a-f]{64}$/);
     const [opened] = context.ledger.authorizations();
     expect(opened).toMatchObject({ kind: 'reusable', limit: { currency: 'USD', micros: 10_000n }, consumed: { micros: 10_000n } });
     expect(opened?.expiresAt).toEqual(new Date(context.clock.now().getTime() + 24 * 60 * 60_000));
@@ -148,9 +150,41 @@ describe('paying and consuming a credential', () => {
 
     expect(results.map((result) => result.status)).toEqual([200, 200, 200, 402]);
     expect(results.map((result) => result.headers.get('l402-remaining'))).toEqual(['$0.02', '$0.01', '$0.00', null]);
-    expect(results[3]?.body).toMatchObject({ reason: 'insufficient_authorization' });
+    expect(results[3]?.body).toMatchObject({ error: { code: 'insufficient_authorization' } });
     expect(context.ledger.authorizations()).toHaveLength(1);
     expect(context.ledger.authorizations()[0]).toMatchObject({ consumed: { micros: 30_000n }, reserved: { micros: 0n } });
+  });
+
+  // A credential is reusable and L402 has no per-request payment identifier, so only the client's key tells a retry apart.
+  it('charges a retry with the same Idempotency-Key once, and a retry without one again', async () => {
+    const context = setup({ calls: 3 });
+    const gate = context.toll.price('$0.01');
+    const { authorization } = await buy(context, gate);
+
+    expect((await call(gate, { authorization, idempotencyKey: 'retry-1' })).status).toBe(200);
+    expect(await call(gate, { authorization, idempotencyKey: 'retry-1' })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect(context.ledger.authorizations()[0]).toMatchObject({ consumed: { micros: 10_000n } });
+
+    expect((await call(gate, { authorization })).status).toBe(200);
+    expect(context.ledger.authorizations()[0]).toMatchObject({ consumed: { micros: 20_000n } });
+  });
+
+  it('answers a keyed retry from the ledger once its quote no longer opens or the credential expired, instead of asking to pay again', async () => {
+    const context = setup({ calls: 5, credentialTtlMs: 60 * 60_000 });
+    const dynamic = context.toll.price(() => '$0.01');
+    const { authorization, challenge } = await buy(context, dynamic);
+    expect((await call(dynamic, { authorization, idempotencyKey: 'once' })).status).toBe(200);
+    const forged = `L402 ${challenge.macaroon}:${'00'.repeat(32)}`;
+
+    context.clock.advance(10 * 60_000);
+    expect(await call(dynamic, { authorization, idempotencyKey: 'once' })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect((await call(dynamic, { authorization, idempotencyKey: 'another' })).body).toMatchObject({ error: { code: 'quote_invalid' } });
+
+    context.clock.advance(60 * 60_000);
+    expect(await call(dynamic, { authorization, idempotencyKey: 'once' })).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' } } });
+    expect((await call(dynamic, { authorization })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'credential_expired' } });
+    expect((await call(dynamic, { authorization: forged, idempotencyKey: 'once' })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'preimage_mismatch' } });
+    expect(context.ledger.charges()).toHaveLength(1);
   });
 
   it('spends one credential across routes at each route’s price', async () => {
@@ -160,7 +194,7 @@ describe('paying and consuming a credential', () => {
 
     expect((await call(context.toll.price('$0.015'), { authorization, path: '/radar' })).status).toBe(200);
     expect(context.ledger.authorizations()[0]).toMatchObject({ consumed: { micros: 15_000n } });
-    expect((await call(context.toll.price('$0.01'), { authorization, path: '/radar' })).body).toMatchObject({ reason: 'insufficient_authorization' });
+    expect((await call(context.toll.price('$0.01'), { authorization, path: '/radar' })).body).toMatchObject({ error: { code: 'insufficient_authorization' } });
   });
 
   it('gives a failed call its value back, so the same credential pays for the retry', async () => {
@@ -194,7 +228,7 @@ describe('paying and consuming a credential', () => {
 
     expect((await call(gate, { authorization })).status).toBe(200);
     expect((await call(gate, { authorization: `${paid}, ${paid.replace('LSAT', 'L402')}` })).status).toBe(200);
-    expect((await call(gate, { authorization: paid })).body).toMatchObject({ reason: 'insufficient_authorization' });
+    expect((await call(gate, { authorization: paid })).body).toMatchObject({ error: { code: 'insufficient_authorization' } });
     expect(context.ledger.authorizations()).toHaveLength(1);
   });
 
@@ -202,7 +236,8 @@ describe('paying and consuming a credential', () => {
     const context = setup();
     const challenged = await context.toll.price('$0.01').enter(mcpContext('forecast', {}));
     if (challenged.kind !== 'denied') throw new Error('expected a challenge');
-    const mcp = challenged.denial.offers[0]?.challenge.mcp as JsonObject & { readonly invoice: string; readonly macaroon: string };
+    const mcp = challenged.denial.offers[0]?.challenge.mcp;
+    if (typeof mcp?.invoice !== 'string' || typeof mcp.macaroon !== 'string') throw new Error('expected a macaroon and invoice');
     const preimage = context.lnd.pay(mcp.invoice);
 
     const entry = await context.toll.price('$0.01').enter(mcpContext('forecast', { [L402_CREDENTIAL_META]: `L402 ${mcp.macaroon}:${preimage}` }));
@@ -220,7 +255,7 @@ describe('rejected credentials', () => {
     const { challenge } = await buy(context, gate);
     const result = await call(gate, { authorization: `L402 ${challenge.macaroon}:${'00'.repeat(32)}` });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'preimage_mismatch' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'preimage_mismatch' } } });
     expect(readChallenge(result.headers).invoice).not.toBe(challenge.invoice);
     expect(context.ledger.authorizations()).toHaveLength(0);
   });
@@ -231,7 +266,7 @@ describe('rejected credentials', () => {
     const { challenge, preimage } = await buy(context, gate);
     const result = await call(gate, { authorization: `L402 ${appendCaveat(challenge.macaroon, `preimage=${'11'.repeat(32)}`)}:${preimage}` });
 
-    expect(result.body).toMatchObject({ reason: 'preimage_mismatch' });
+    expect(result.body).toMatchObject({ error: { code: 'proof_invalid', detail: 'preimage_mismatch' } });
   });
 
   it('rejects macaroons minted with another secret or altered in transit', async () => {
@@ -245,9 +280,9 @@ describe('rejected credentials', () => {
     const bytes = Buffer.from(challenge.macaroon, 'base64');
     bytes[bytes.length - 40] = (bytes[bytes.length - 40] ?? 0) ^ 1;
 
-    expect((await call(gate, { authorization: `L402 ${foreign.macaroon}:${foreignPreimage}` })).body).toMatchObject({ reason: 'macaroon_invalid' });
-    expect((await call(gate, { authorization: `L402 ${bytes.toString('base64')}:${preimage}` })).body).toMatchObject({ reason: 'macaroon_invalid' });
-    expect((await call(gate, { authorization: `L402 AgEEbHNhdAJCAAA=:${preimage}` })).body).toMatchObject({ reason: 'macaroon_invalid' });
+    expect((await call(gate, { authorization: `L402 ${foreign.macaroon}:${foreignPreimage}` })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'macaroon_invalid' } });
+    expect((await call(gate, { authorization: `L402 ${bytes.toString('base64')}:${preimage}` })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'macaroon_invalid' } });
+    expect((await call(gate, { authorization: `L402 AgEEbHNhdAJCAAA=:${preimage}` })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'macaroon_invalid' } });
   });
 
   it('keeps accepting credentials minted with a rotated-out secret while it is still listed', async () => {
@@ -275,10 +310,10 @@ describe('rejected credentials', () => {
 
     expect((await call(gate, { authorization: shortened })).status).toBe(200);
     context.clock.advance(61_000);
-    expect((await call(gate, { authorization: shortened })).body).toMatchObject({ reason: 'credential_expired' });
+    expect((await call(gate, { authorization: shortened })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'credential_expired' } });
     expect((await call(gate, { authorization })).status).toBe(200);
     context.clock.advance(60 * 60_000);
-    expect((await call(gate, { authorization })).body).toMatchObject({ reason: 'credential_expired' });
+    expect((await call(gate, { authorization })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'credential_expired' } });
   });
 
   it('refuses caveats that restate the quote or value, and caveats it does not understand', async () => {
@@ -289,10 +324,10 @@ describe('rejected credentials', () => {
     const otherQuote = String(second.body.quote);
     const attenuated = (caveat: string) => `L402 ${appendCaveat(challenge.macaroon, caveat)}:${preimage}`;
 
-    expect((await call(gate, { authorization: attenuated(`tollstile_quote=${otherQuote}`) })).body).toMatchObject({ reason: 'caveat_conflict' });
-    expect((await call(gate, { authorization: attenuated('tollstile_limit=USD:999999999') })).body).toMatchObject({ reason: 'caveat_conflict' });
-    expect((await call(gate, { authorization: attenuated('services=weather:0') })).body).toMatchObject({ reason: 'caveat_unsupported' });
-    expect((await call(gate, { authorization: attenuated('no separator') })).body).toMatchObject({ reason: 'caveat_malformed' });
+    expect((await call(gate, { authorization: attenuated(`tollstile_quote=${otherQuote}`) })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'caveat_conflict' } });
+    expect((await call(gate, { authorization: attenuated('tollstile_limit=USD:999999999') })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'caveat_conflict' } });
+    expect((await call(gate, { authorization: attenuated('services=weather:0') })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'caveat_unsupported' } });
+    expect((await call(gate, { authorization: attenuated('no separator') })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'caveat_malformed' } });
     expect(context.ledger.authorizations()).toHaveLength(0);
   });
 
@@ -301,7 +336,7 @@ describe('rejected credentials', () => {
     const { authorization } = await buy(context, context.toll.price('$0.01'));
     const result = await call(context.toll.price('0.01 EUR'), { authorization, path: '/euro' });
 
-    expect(result.body).toMatchObject({ reason: 'currency_mismatch' });
+    expect(result.body).toMatchObject({ error: { code: 'proof_invalid', detail: 'currency_mismatch' } });
   });
 });
 
@@ -329,7 +364,7 @@ describe('quotes', () => {
     context.clock.advance(10 * 60_000);
 
     expect((await call(fixed, { authorization })).status).toBe(200);
-    expect((await call(dynamic, { authorization })).body).toMatchObject({ reason: 'quote_required' });
+    expect(await call(dynamic, { authorization })).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'quote_invalid', detail: null } } });
   });
 });
 
@@ -340,7 +375,7 @@ describe('invoice confirmation', () => {
     const challenged = readChallenge((await call(gate)).headers);
     const leaked = `L402 ${challenged.macaroon}:${context.lnd.preimageOf(challenged.invoice)}`;
 
-    expect((await call(gate, { authorization: leaked })).body).toMatchObject({ reason: 'invoice_not_settled' });
+    expect((await call(gate, { authorization: leaked })).body).toMatchObject({ error: { code: 'proof_invalid', detail: 'invoice_not_settled' } });
 
     context.lnd.pay(challenged.invoice);
     context.lnd.setMode('down');

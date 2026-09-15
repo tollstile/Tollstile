@@ -5,7 +5,7 @@ A paid Worker with `@tollstile/fetch`, the adapter for Web-standard `Request` �
 | Route | Price | What it shows |
 |---|---|---|
 | `GET /weather` | $0.01 | A fixed price: `402` with a signed quote, pay the quote, `200` with a receipt. |
-| `POST /translate` | $0.001 per word | A price computed from the body. The quote commits to that body, so the paid retry must send the same bytes; different text gets a fresh `402` with reason `quote_mismatch`. |
+| `POST /translate` | $0.001 per word | A price computed from the body. The quote commits to that body, so the paid retry must send the same bytes; different text gets a fresh `402` with error code `quote_mismatch`. |
 
 ## Run it
 
@@ -25,11 +25,16 @@ pnpm --filter @tollstile-examples/cloudflare-workers agent
 Expected output (charge ids differ):
 
 ```
-GET /weather → 402 payment_required, price $0.01
+GET /weather → 402 payment_required (pay), price $0.01
 GET /weather  Payment: test quote=… → 200, receipt test_settlement_chg_306ba03fa2618057efe4bc05
   {"city":"Tokyo","forecast":"clear"}
-POST /translate → 402 payment_required, price $0.008
-POST /translate  Payment: test quote=…  (a longer body) → 402 quote_mismatch, price $0.017
+GET /weather → 402 payment_required (pay), price $0.01
+GET /weather  Payment + Idempotency-Key → 200, receipt test_settlement_chg_150f4c1ed192526fd8db2f57
+  {"city":"Tokyo","forecast":"clear"}
+GET /weather  the same retry → 409, receipt none
+  {"error":{"code":"already_paid","retryable":false,"action":"stop","message":"This request was already paid (chg_150f4c1ed192526fd8db2f57). It is not charged or run again.","detail":null},"resource":"GET /weather","chargeId":"chg_150f4c1ed192526fd8db2f57","settlement":"test_settlement_chg_150f4c1ed192526fd8db2f57"}
+POST /translate → 402 payment_required (pay), price $0.008
+POST /translate  Payment: test quote=…  (a longer body) → 402 quote_mismatch (pay), price $0.017
 POST /translate  Payment: test quote=…  (the same body) → 200, receipt test_settlement_chg_ebcc30e488b7cfea666d7d23
   {"translation":"[fr] The weather in Tokyo is clear all week"}
 ```

@@ -3,7 +3,7 @@
 const baseUrl = process.argv[2] ?? 'http://localhost:8787';
 
 /** The fields of Tollstile's 402 body this agent reads. */
-type Challenge = { readonly price: string; readonly quote: string; readonly reason: string | null };
+type Challenge = { readonly price: string; readonly quote: string; readonly error: { readonly code: string; readonly action: string } };
 
 // 1. A fixed price: 402 with a signed quote, then 200 and a receipt for paying it.
 const weather = await challengeOf('GET /weather', await fetch(`${baseUrl}/weather`));
@@ -12,7 +12,14 @@ await show(
   await fetch(`${baseUrl}/weather`, { headers: { payment: `test quote=${weather.quote}` } }),
 );
 
-// 2. A price computed from the body. The quote pays only for the body it priced.
+// 2. A retry after a lost response: the same payment and Idempotency-Key is answered 409 already_paid,
+// so the agent never pays twice for one request.
+const retried = await challengeOf('GET /weather', await fetch(`${baseUrl}/weather`));
+const once = { payment: `test quote=${retried.quote}`, 'idempotency-key': crypto.randomUUID() };
+await show('GET /weather  Payment + Idempotency-Key', await fetch(`${baseUrl}/weather`, { headers: once }));
+await show('GET /weather  the same retry', await fetch(`${baseUrl}/weather`, { headers: once }));
+
+// 3. A price computed from the body. The quote pays only for the body it priced.
 const text = 'The weather in Tokyo is clear all week';
 const translation = await challengeOf('POST /translate', await fetch(`${baseUrl}/translate`, { method: 'POST', body: text }));
 await challengeOf(
@@ -34,7 +41,7 @@ async function challengeOf(label: string, response: Response): Promise<Challenge
   if (response.status !== 402 || !isChallenge(body)) {
     throw new Error(`${label}: expected a 402 with a quote, got ${response.status} ${JSON.stringify(body)}`);
   }
-  console.log(`${label} → 402 ${body.reason ?? 'payment_required'}, price ${body.price}`);
+  console.log(`${label} → 402 ${body.error.code} (${body.error.action}), price ${body.price}`);
   return body;
 }
 
@@ -51,7 +58,10 @@ function isChallenge(body: unknown): body is Challenge {
     typeof body.price === 'string' &&
     'quote' in body &&
     typeof body.quote === 'string' &&
-    'reason' in body &&
-    (body.reason === null || typeof body.reason === 'string')
+    'error' in body &&
+    typeof body.error === 'object' &&
+    body.error !== null &&
+    'code' in body.error &&
+    typeof body.error.code === 'string'
   );
 }

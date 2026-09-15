@@ -21,7 +21,7 @@ function createRoutes(): ReadonlyMap<string, Route> {
   return new Map([
     ['GET /weather', paid(toll.price('$0.01'), () => Response.json({ city: 'Tokyo', forecast: 'clear' }))],
     // A price computed from the request body. The quote commits to that exact body, so the paid
-    // retry must send the same bytes; a different body gets a fresh 402 with reason "quote_mismatch".
+    // retry must send the same bytes; a different body gets a fresh 402 with error code "quote_mismatch".
     [
       'POST /translate',
       paid(toll.price(pricePerWord), async (request) => Response.json({ translation: `[fr] ${await request.text()}` })),

@@ -1,4 +1,4 @@
-import { toResponse, type Gate, type Payment, type Principal, type Rail } from 'tollstile';
+import { idempotencyKeyOf, toResponse, type Gate, type Payment, type Principal, type Rail } from 'tollstile';
 
 export type NextAdapterOptions = {
   /** Resolves the authenticated caller, for access policies such as `subscriber()` and `credits()`. */
@@ -55,6 +55,7 @@ export function paid<Rails extends readonly Rail[], Params = Record<string, stri
       principal: options.principal === undefined ? null : await options.principal(request),
       resource: `${request.method} ${new URL(request.url).pathname}`,
       requestId: crypto.randomUUID(),
+      idempotencyKey: idempotencyKeyOf(request, null),
       extras: request,
     });
     if (entry.kind === 'denied') return toResponse(entry.denial);

@@ -20,7 +20,15 @@ export type Credential = {
 
 export type CredentialRead =
   | { readonly status: 'absent' }
-  | { readonly status: 'invalid'; readonly reason: string }
+  | {
+      readonly status: 'invalid';
+      readonly reason: string;
+      /**
+       * Set only for a challenge this server issued (its id verified) that can no longer be accepted,
+       * so a charge rail can let core answer a retry of an already-paid request from the ledger.
+       */
+      readonly challengeId?: string;
+    }
   | { readonly status: 'present'; readonly credential: Credential };
 
 export type Expected = {
@@ -68,7 +76,7 @@ export async function readCredential(context: Context, expected: Expected): Prom
     opaque,
   };
   if (!(await isBound(issued, expected.secrets))) return invalid('challenge_invalid');
-  if (expires <= expected.now.getTime()) return invalid('challenge_expired');
+  if (expires <= expected.now.getTime()) return { status: 'invalid', reason: 'challenge_expired', challengeId: issued.id };
 
   if (!isObject(payload)) return invalid('invalid_payload');
   return {
@@ -78,7 +86,7 @@ export async function readCredential(context: Context, expected: Expected): Prom
 }
 
 export type ChargeTerms =
-  | { readonly status: 'invalid'; readonly reason: string }
+  | { readonly status: 'invalid'; readonly reason: string; readonly challengeId?: string }
   | {
       readonly status: 'ok';
       readonly quote: Quote | null;
@@ -96,7 +104,8 @@ export async function chargeTerms(credential: Credential, terms: VerifyTerms, ra
     return { status: 'ok', quote: null, price: terms.price, offer: null };
   }
   const quote = await terms.openQuote(token);
-  if (quote === undefined) return { status: 'invalid', reason: 'quote_invalid' };
+  // The challenge is authentic, so its quote expired with it or was issued for another resource.
+  if (quote === undefined) return { status: 'invalid', reason: 'quote_invalid', challengeId: credential.challenge.id };
   const offer = quote.offers.find((candidate) => candidate.rail === rail);
   if (offer === undefined) return { status: 'invalid', reason: 'quote_offer_missing' };
   return { status: 'ok', quote, price: quote.price, offer };
@@ -142,6 +151,16 @@ async function isBound(challenge: Challenge, secrets: ChallengeSecrets): Promise
     if (constantTimeEqual(presented, utf8(await computeChallengeId(secret, slots)))) bound = true;
   }
   return bound;
+}
+
+/**
+ * The verification for a rejected charge credential. Charge rails use the challenge id as proof id,
+ * so an authentic challenge is reported with it and core can recognize a retry of a paid request.
+ */
+export function rejected(result: { readonly reason: string; readonly challengeId?: string }): { readonly status: 'invalid'; readonly reason: string; readonly proofId?: string } {
+  return result.challengeId === undefined
+    ? { status: 'invalid', reason: result.reason }
+    : { status: 'invalid', reason: result.reason, proofId: result.challengeId };
 }
 
 function invalid(reason: string): CredentialRead {

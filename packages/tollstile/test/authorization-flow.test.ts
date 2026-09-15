@@ -10,7 +10,7 @@ describe('challenge', () => {
     expect(result.status).toBe(402);
     expect(result.headers.get('cache-control')).toBe('no-store');
     expect(result.body).toMatchObject({
-      error: 'payment_required',
+      error: { code: 'payment_required', retryable: true, action: 'pay' },
       price: '$0.01',
       variable: false,
       accepts: [{ rail: 'test', asset: { code: 'USD', scale: 6 }, amount: '10000', flow: 'authorization' }],
@@ -24,7 +24,7 @@ describe('challenge', () => {
     const { toll, rail } = setup();
     const result = await call(toll.price('$0.01'), { payment: 'test amount=$0.02' });
 
-    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'amount_mismatch' } });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'amount_mismatch' } } });
     expect(rail.effects.settlements).toBe(0);
   });
 
@@ -67,7 +67,7 @@ describe('authorization flow', () => {
     const replay = await call(gate, { payment: 'test proof=p1' });
 
     expect(retry.status).toBe(200);
-    expect(replay).toMatchObject({ status: 402, handlerRuns: 0, body: { reason: 'proof_already_used' } });
+    expect(replay).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'proof_already_used', action: 'stop' } } });
     expect(rail.effects.settlements).toBe(1);
   });
 
@@ -76,7 +76,7 @@ describe('authorization flow', () => {
     const gate = toll.price('$0.01');
     const results = await Promise.all([call(gate, { payment: 'test proof=p1' }), call(gate, { payment: 'test proof=p1' })]);
 
-    expect(results.map((result) => result.status).sort()).toEqual([200, 402]);
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
     expect(rail.effects.settlements).toBe(1);
   });
 

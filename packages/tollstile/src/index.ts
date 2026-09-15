@@ -1,5 +1,7 @@
 export { createTollstile, upTo, type Tollstile } from './core/tollstile';
 export { toResponse } from './core/responses';
+export { RETRY_AFTER_SECONDS, type DenialAction, type DenialCode, type DenialError } from './core/denials';
+export { IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_META, idempotencyKeyOf } from './core/idempotency';
 export { TollstileError, type TollstileErrorCode } from './core/errors';
 export { compare, formatMoney, money, parseMoney, toAssetUnits, type Money } from './core/money';
 export {

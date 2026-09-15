@@ -141,9 +141,9 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
         status,
         sql`INSERT INTO ${charges}
               (id, authorization_id, request_id, resource, payer, flow, currency, reserved_micros, amount_micros,
-               payment, fulfillment, version, created_at, updated_at)
+               payment, fulfillment, request_hash, version, created_at, updated_at)
             SELECT ${input.id}, ${input.authorizationId}, ${input.requestId}, ${input.resource}, ${input.payer}, ${input.flow},
-              ${input.amount.currency}, ${amount}, ${amount}, 'reserved', ${input.fulfillment}, 1, ${at}, ${at}
+              ${input.amount.currency}, ${amount}, ${amount}, 'reserved', ${input.fulfillment}, ${input.requestHash}, 1, ${at}, ${at}
             WHERE (${status}) = 'created'`,
         sql`UPDATE ${authorizations} SET
               reserved_currency = CASE WHEN reserved_micros = 0 THEN ${input.amount.currency} ELSE reserved_currency END,

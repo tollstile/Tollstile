@@ -27,6 +27,7 @@ export type CallOptions<Rails extends readonly Rail[]> = {
   readonly handler?: (payment: Payment<Rails>) => Outcome | Promise<Outcome>;
   readonly path?: string;
   readonly method?: string;
+  readonly idempotencyKey?: string;
   readonly body?: string;
   /** Reads the body in the handler, as an application would. */
   readonly readBody?: (body: string) => void;
@@ -36,6 +37,7 @@ export type CallOptions<Rails extends readonly Rail[]> = {
 export async function call<Rails extends readonly Rail[]>(gate: Gate<Rails>, options: CallOptions<Rails> = {}): Promise<Result> {
   const headers = new Headers();
   if (options.payment !== undefined) headers.set('payment', options.payment);
+  if (options.idempotencyKey !== undefined) headers.set('idempotency-key', options.idempotencyKey);
   const request = new Request(`http://localhost${options.path ?? '/weather'}`, {
     method: options.method ?? (options.body === undefined ? 'GET' : 'POST'),
     headers,

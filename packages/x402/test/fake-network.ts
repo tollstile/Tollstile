@@ -28,6 +28,7 @@ export type FacilitatorMode =
   | 'hang'
   | 'settle-hang'
   | 'unexpected-verify-error'
+  | 'verify-bad-signature'
   | 'settle-pending-after-effect'
   | 'settle-html-502'
   | 'settle-rejected'
@@ -44,6 +45,7 @@ export function fakeNetwork(clock: Clock) {
   const transactions = new Map<string, Transaction>();
   const calls = { verify: [] as Record_[], settle: [] as Record_[], rpc: [] as string[] };
   let mode: FacilitatorMode = 'ok';
+  let nextSettle: 'lose-response' | 'fail' | undefined;
   let rpcDown = false;
 
   const now = () => BigInt(Math.floor(clock.now().getTime() / 1000));
@@ -112,19 +114,24 @@ export function fakeNetwork(clock: Clock) {
     if (path === '/verify') {
       calls.verify.push(body);
       if (mode === 'unexpected-verify-error') return json(500, { isValid: false, invalidReason: 'unexpected_verify_error' });
+      if (mode === 'verify-bad-signature') return json(200, { isValid: false, invalidReason: 'invalid_exact_evm_payload_signature' });
       const result = verdict(body);
       return result.ok ? json(200, { isValid: true, payer: result.payer }) : json(200, { isValid: false, invalidReason: result.reason });
     }
 
     calls.settle.push(body);
     const network = (body.paymentRequirements as Record_).network;
+    const fault = nextSettle;
+    nextSettle = undefined;
     if (mode === 'settle-rejected') return json(200, { success: false, errorReason: 'insufficient_funds', transaction: '', network });
     if (mode === 'settle-rejected-non-2xx') return json(400, { success: false, errorReason: 'insufficient_funds', transaction: '', network });
     if (mode === 'settle-html-502') return new Response('<html>Bad Gateway</html>', { status: 502 });
     const result = verdict(body);
     if (!result.ok) return json(200, { success: false, errorReason: result.reason, transaction: '', network });
     const transaction = settleOnChain(body);
-    if (mode === 'settle-pending-after-effect') return json(200, { success: false, errorReason: 'settlement_pending', transaction, network });
+    if (mode === 'settle-pending-after-effect' || fault === 'lose-response') {
+      return json(200, { success: false, errorReason: 'settlement_pending', transaction, network });
+    }
     return json(200, { success: true, transaction, network, payer: result.payer, amount: (body.paymentRequirements as Record_).amount });
   };
 
@@ -192,6 +199,10 @@ export function fakeNetwork(clock: Clock) {
     const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record_;
     if (url.origin === new URL(FACILITATOR_URL).origin) {
       if (mode === 'unreachable') throw new TypeError('fetch failed');
+      if (url.pathname === '/settle' && nextSettle === 'fail') {
+        nextSettle = undefined;
+        throw new TypeError('fetch failed');
+      }
       if (mode === 'hang' || (mode === 'settle-hang' && url.pathname === '/settle')) {
         const signal = init?.signal;
         return new Promise<Response>((_, reject) => {
@@ -227,6 +238,10 @@ export function fakeNetwork(clock: Clock) {
     calls,
     simulate(next: FacilitatorMode) {
       mode = next;
+    },
+    /** One-shot fault for the next `/settle`: perform it but lose the answer, or fail before any effect. */
+    faultNextSettle(fault: 'lose-response' | 'fail') {
+      nextSettle = fault;
     },
     rpcDown(down: boolean) {
       rpcDown = down;

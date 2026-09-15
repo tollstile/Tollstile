@@ -24,7 +24,10 @@ export type TokenTerms = {
   readonly validUntil: Date;
 };
 
-export type ReadToken = { readonly status: 'invalid'; readonly reason: string } | ({ readonly status: 'valid' } & TokenTerms);
+export type ReadToken =
+  /** `proofId` (the payment hash) is set only for authentic credentials that were acceptable once, e.g. expired ones. */
+  | { readonly status: 'invalid'; readonly reason: string; readonly proofId?: string }
+  | ({ readonly status: 'valid' } & TokenTerms);
 
 /** aperture's identifier v0: uint16 version | payment_hash[32] | token_id[32]. */
 const IDENTIFIER_VERSION = 0;
@@ -112,7 +115,7 @@ export async function readToken(secrets: readonly string[], credential: Credenti
         return invalid('caveat_unsupported');
     }
   }
-  if (expiresAt <= now.getTime()) return invalid('credential_expired');
+  if (expiresAt <= now.getTime()) return { status: 'invalid', reason: 'credential_expired', proofId: toHex(paymentHash) };
 
   return {
     status: 'valid',

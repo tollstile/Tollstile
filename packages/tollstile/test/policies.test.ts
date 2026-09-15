@@ -132,7 +132,7 @@ describe('requirements', () => {
     expect((await call(toll.price('$1', { require }), { payment: 'test' })).status).toBe(200);
     expect(await call(toll.price('$10', { require }), { payment: 'test' })).toMatchObject({
       status: 402,
-      body: { error: 'requirement_failed', requirement: 'mandate' },
+      body: { error: { code: 'requirement_failed' }, requirement: 'mandate' },
     });
   });
 

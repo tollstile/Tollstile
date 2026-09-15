@@ -61,7 +61,7 @@ Buyers send the token in the `KYAPay-Token` header (over MCP: `_meta["kyapay/tok
 | Capability | Value | Why |
 |---|---|---|
 | `flows` | `["authorization"]` | Skyfire's documented flow is verify → deliver → charge; a token's funds are committed when it is minted. |
-| `authorization` | `reusable` | A token is a hold charged many times until exhausted. `limit` = `amt`/`cur`, `expiresAt` = `exp`, proof id = `iss` + `jti`, payer = `sub`. |
+| `authorization` | `reusable` | A token is a hold charged many times until exhausted. `limit` = `amt`/`cur`, `expiresAt` = `exp`, proof id = `iss` + `jti`, payer = `<iss>#<sub>` with `sub` exactly as issued. |
 | `variableAmount` | `true` | `chargeAmount` may be any amount up to the remaining balance. |
 | `quotes` | `false` | Buyers mint tokens with Skyfire; nothing the server sends comes back inside the token. Fixed-price routes only. |
 | `refund`, `partialRefund` | `false` | Skyfire documents no refund, void, or reversal API. Not charging is the only release. |
@@ -103,7 +103,7 @@ others = ledger `reserved` − this charge's reservation  (the most other in-fli
 | neither possible (something else charged the token) | throws `PROVIDER_TIMEOUT` | throws `PROVIDER_TIMEOUT` |
 | HTTP 404 | throws `PROVIDER_TIMEOUT` (404 is not documented to mean "no charges") | charges |
 
-`settle` charges in the "both possible" and "lagging" cases because core only calls it on a charge's first attempt (after writing `settling`) or after `lookup` proved the charge absent.
+`settle` charges in the "both possible" and "lagging" cases because core only calls it on a charge's first attempt (after writing `settling`) or after `lookup` proved the charge absent. A `settle` for a charge the ledger already recorded as settled returns that settlement without calling Skyfire: its reservation is already counted in `consumed`, so the list arithmetic does not apply to it.
 
 Charge responses: `200` with `amountCharged` equal to the requested amount → settled. A 4xx with a documented Skyfire error `code` → rejected (the list call that precedes it proves the API key works, so `NOT_AUTHORIZED` means the token was refused). Anything else — 5xx, non-JSON, unknown code, a different `amountCharged`, a timeout — is unknown and goes to reconciliation.
 
@@ -116,6 +116,14 @@ Charge responses: `200` with `amountCharged` equal to the requested amount → s
 - Charges are accepted for 24 hours after `exp`. A charge still unresolved after that is rejected by Skyfire.
 - Settlement `reference` is `<jti>:<charge id>` because Skyfire returns no charge id.
 
+## Retries and idempotency
+
+A token pays for many requests, and KYAPay carries no per-request payment identifier (`jti` names the token, not the request), so the rail supplies no idempotency key: **a retried request without one is charged again.** Clients that retry (after a timeout or a dropped connection) should send the same `Idempotency-Key` header on every attempt, or `_meta["tollstile/idempotency-key"]` over MCP. Keys are scoped to the payer (`<iss>#<sub>`), so a retry finds the original charge even with a newly minted token from the same buyer: `409 already_paid` once it was charged, `409 request_in_progress` while it runs, `503 payment_outcome_unknown` while Skyfire's answer is unknown, `402 settlement_rejected` if Skyfire refused the charge, and a new attempt only if the first one was released.
+
+A retry with the same key after the token expired is also answered from the ledger (`409 already_paid`) rather than with a `402`: the rail identifies an expired token that is otherwise valid for this seller. Tokens that fail signature or audience checks, and expired sender-constrained (`cnf`) tokens, are never matched to earlier charges.
+
+`sub` is unique only per issuer, so the payer id is `<iss>#<sub>`, for example `https://app.skyfire.xyz#buyer-1`. Use that form in `payers()` lists. Two issuers can never share a payer, so payer requirements and idempotency keys never mix their buyers.
+
 ## Stored data
 
 The authorization's `data` is `{ token, tokenId }`. The compact JWT is stored because Skyfire charges only against the full signed token, and the charge happens after the handler, possibly in another process (reconciliation). The token can be charged only by the seller in `aud` with that seller's API key, which is never stored. `kya-pay` tokens carry buyer identity claims (`hid`, `apd`, `aid`); set `tokenTypes: ["pay"]` to keep them out of the ledger. Card-settled tokens are refused before anything is stored.
@@ -124,7 +132,34 @@ The authorization's `data` is `{ token, tokenId }`. The compact JWT is stored be
 
 KYAPay defines no challenge format. Following Skyfire's guidance, `accepts[].details` names the `KYAPay-Token` header, the accepted token types, the issuer, where to create tokens, and a human-readable message, and includes the A2A extension's `kyapay.payment.required` shape (`kyapay_version: 1`, `accepts: [{ seller_service_id, token_amount, token_type, description, resource }]`). MCP challenges use `{ style: "tollstile", ... }` with the same fields. Receipts: `kyapay-receipt` header / `_meta["kyapay/receipt"]`, `{ success, amount_charged, token_id }`.
 
-Skyfire recommends 403 for a missing token and 401 for an invalid one; Tollstile answers 402 for both, with the reason in the body.
+Skyfire recommends 403 for a missing token and 401 for an invalid one; Tollstile answers 402 for both. An invalid token's body says why in `error.detail`, under the stable `error.code` `proof_invalid`; branch on `code`:
+
+```json
+{
+  "error": {
+    "code": "proof_invalid",
+    "retryable": true,
+    "action": "pay",
+    "message": "The kyapay payment was not accepted. Pay again using this response.",
+    "detail": "sender_constrained_token_unsupported"
+  },
+  "resource": "GET /report",
+  "price": "$0.01",
+  "variable": false,
+  "quote": "eyJ2Ijox…",
+  "nonce": "Z_tM-Fc4rWeSx-93qxUjeQ",
+  "expiresAt": "2026-01-01T00:05:00.000Z",
+  "accepts": [
+    {
+      "rail": "kyapay",
+      "asset": { "code": "USD", "network": "skyfire:sandbox", "scale": 6 },
+      "amount": "10000",
+      "flow": "authorization",
+      "details": { "header": "KYAPay-Token", "tokenTypes": ["pay", "kya-pay"], "issuer": "https://app-sandbox.skyfire.xyz", "kyapay_version": 1, "accepts": ["…"] }
+    }
+  ]
+}
+```
 
 ## Verification status
 

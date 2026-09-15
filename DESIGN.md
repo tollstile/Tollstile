@@ -1,6 +1,6 @@
 # Tollstile Core Design
 
-This document defines the core model: the concepts, their states, how flows compose them, and the contracts rails, policies, ledgers, and adapters implement. The TypeScript definitions in [`packages/tollstile/src/core/types.ts`](./packages/tollstile/src/core/types.ts) are authoritative; the snippets here are abridged. [PHILOSOPHY.md](./PHILOSOPHY.md) explains why; [CODING_RULES.md](./CODING_RULES.md) explains how code is written.
+This document defines the core model: the concepts, their states, how flows compose them, and the contracts rails, policies, ledgers, and adapters implement. The TypeScript definitions in [`packages/tollstile/src/core/types.ts`](./packages/tollstile/src/core/types.ts) are authoritative; the snippets here are abridged. [SPEC.md](./SPEC.md) is the normative contract every component must meet; [PHILOSOPHY.md](./PHILOSOPHY.md) explains why; [CODING_RULES.md](./CODING_RULES.md) explains how code is written.
 
 ## Why this model
 
@@ -332,6 +332,11 @@ type Ledger = LedgerReader & {
 Run it on a schedule: a cron trigger on Workers, an interval in Node, or `npx tollstile reconcile` with a ledger config. The window must exceed your slowest handler.
 
 ---
+
+## Idempotency and errors
+
+- **Idempotency keys** (`Idempotency-Key`, or `_meta["tollstile/idempotency-key"]`) are scoped to the payer. A retry finds the first attempt's charge and is answered from its state: in progress, already paid, outcome unknown, or rejected; a released attempt runs again. A key reused for a different request is refused. Rails may supply a protocol payment identifier as the key. A rail whose provider rejects an already-used proof returns `invalid` with its `proofId`, so the retry is answered from the ledger rather than asked to pay again. SPEC.md §11.
+- **Denials** carry `{ error: { code, retryable, action, message, detail } }`. Codes are owned by core; a rail's own reason goes in `detail`. `action` tells an agent what to do next: `pay`, `retry_later`, `fix_request`, or `stop`. SPEC.md §12.
 
 ## Events
 

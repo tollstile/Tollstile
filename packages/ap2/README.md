@@ -45,7 +45,17 @@ The agent's round trip:
 2. Build the KB-SD-JWT for the closed mandate with `nonce` = that `nonce` and `aud` = one of your audiences.
 3. Retry with the rail's proof carrying the quote, plus `AP2-Mandate: <open SD-JWT>~<KB-SD-JWT>~<disclosures>~` (or `_meta["ap2/mandate"]` over MCP).
 
-Failures are `402` with `{ "error": "requirement_failed", "requirement": "user-mandate", "reason": "mandate_required" | "mandate_invalid:<detail>" }`.
+Failures are `402`, rendered by core as a requirement failure the agent answers by presenting a valid mandate with a new payment:
+
+```json
+{
+  "error": { "code": "requirement_failed", "retryable": true, "action": "pay", "message": "…", "detail": "mandate_invalid:nonce_mismatch" },
+  "requirement": "user-mandate",
+  "resource": "POST /purchase"
+}
+```
+
+`error.detail` is `mandate_required` or `mandate_invalid:<check>`, where `<check>` is one of the stable identifiers listed below (some carry a `:<claim>` or `:<constraint type>` suffix). Log it; branch on `error.code` and `error.action`.
 
 ## Options
 
@@ -72,7 +82,7 @@ The chain must be exactly an issuer-signed SD-JWT and one KB-SD-JWT, joined by `
 7. **Merchant terms.** `payee` matches `payee`; `payment_amount` is in the price's currency and, converted with ISO 4217 minor units, at least the price.
 8. **Single use.** The SHA-256 of the KB-SD-JWT signing input is claimed until the key binding could no longer be accepted; a second presentation is `mandate_reused`.
 
-Details include `issuer_untrusted`, `issuer_signature_invalid`, `kb_signature_invalid`, `kb_binding_missing`, `kb_binding_mismatch`, `disclosure_unreferenced`, `open_mandate:vct_mismatch`, `closed_mandate:payment_amount_invalid`, `audience_mismatch`, `nonce_mismatch`, `stale`, `expired`, `preset_mismatch:<claim>`, `constraint_failed:<type>`, `unsupported_constraint:<type>`, `payee_mismatch`, `amount_insufficient`, `currency_mismatch`, `key_binding_required`, `delegation_depth_unsupported`, and `mandate_reused`.
+`<check>` values include `issuer_untrusted`, `issuer_signature_invalid`, `kb_signature_invalid`, `kb_binding_missing`, `kb_binding_mismatch`, `disclosure_unreferenced`, `open_mandate:vct_mismatch`, `closed_mandate:payment_amount_invalid`, `audience_mismatch`, `nonce_mismatch`, `stale`, `expired`, `preset_mismatch:<claim>`, `constraint_failed:<type>`, `unsupported_constraint:<type>`, `payee_mismatch`, `amount_insufficient`, `currency_mismatch`, `key_binding_required`, `delegation_depth_unsupported`, and `mandate_reused`.
 
 ## Behavior to know
 

@@ -120,7 +120,7 @@ A quote commits to the request it priced:
 | Result | Meaning | Core does |
 |---|---|---|
 | `absent` | no proof for this rail | tries the next rail |
-| `invalid` | a proof for this rail that fails verification | denies with a fresh challenge (§12) |
+| `invalid` | a proof for this rail that fails verification | denies with a fresh challenge (§12); if it carries `proofId` of an authorization already charged, answers from the ledger instead (§11) |
 | `valid` | verified | opens the authorization |
 | throws `PROVIDER_*` | cannot verify now | `503`, handler does not run |
 
@@ -218,7 +218,7 @@ Rail operations receive an `Operation { key, signal }`.
 |---|---|---|
 | request id | adapter, per inbound request | nothing; operation keys for verify and requirements |
 | authorization id | H(`auth`, rail, proofId) | every presentation of the same proof |
-| charge id | H(`chg`, authorization id, idempotency key or request id, attempt) | every retry with the same key |
+| charge id | H(`chg`, authorization id, request id) without a key; H(`chg`, payer, idempotency key, attempt) with one | every retry with the same key by the same payer |
 | operation key | charge id + operation (`settle`, `refund`, `release`, `lookup`) | every attempt of that operation |
 | settlement reference | the provider | — |
 | receipt | rail, from the settled charge | — |
@@ -227,10 +227,10 @@ Rail operations receive an `Operation { key, signal }`.
 
 The client MAY send an idempotency key (`Idempotency-Key` header, or `_meta["tollstile/idempotency-key"]`). A rail MAY supply one from its protocol (a payment identifier); the client's key takes precedence.
 
-- Keys are scoped to the authorization: the same key on a different authorization is a different request.
+- Keys are scoped to the payer. A retry with the same key finds the first attempt's charge even when the client signed a new payment for it; the new proof is not charged. Payer ids are verified by the rail, so one payer cannot occupy another payer's keys. Rails whose payer id changes per payment (e.g. one id per challenge) get idempotency only within that id.
 - The charge records a hash of the request it was created for (the `request` commitment). The same key with a different request MUST be refused with `422 idempotency_key_reused`.
 
-A retry with the same authorization and key finds the existing charge:
+A retry by the same payer with the same key finds the existing charge:
 
 | Existing charge | Response |
 |---|---|
@@ -239,6 +239,8 @@ A retry with the same authorization and key finds the existing charge:
 | settled and completed | `409 already_paid` with the charge id and settlement reference; the handler does not run again and nothing is charged |
 | failed (settlement rejected) | `402 settlement_rejected` with a fresh challenge |
 | released, or refunded | a new attempt: a new charge under the same key, and the handler runs |
+
+A rail whose provider rejects a proof it already accepted (a used nonce) before core can see the ledger MUST return `invalid` with that proof's `proofId`. Core then answers the retry from the ledger, as above, instead of asking the client to pay again.
 
 Without a key:
 
