@@ -1,0 +1,17 @@
+{
+  "name": "@tollstile-examples/proxy-python",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "proxy": "tsx ../../packages/proxy/src/cli.ts --config tollstile.proxy.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tollstile/proxy": "workspace:^",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "4.23.13"
+  }
+}

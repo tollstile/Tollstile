@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "paths": {
+      "tollstile": ["../../packages/tollstile/src/index.ts"],
+      "@tollstile/proxy": ["../../packages/proxy/src/index.ts"]
+    }
+  },
+  "include": ["tollstile.proxy.ts"]
+}

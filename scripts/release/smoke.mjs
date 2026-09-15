@@ -44,6 +44,7 @@ const entryPoints = {
   '@tollstile/sqlite': 'sqliteLedger',
   '@tollstile/web-bot-auth': 'verifiedAgent',
   '@tollstile/ap2': 'userMandate',
+  '@tollstile/proxy': 'createProxy',
 };
 for (const [name, entry] of Object.entries(entryPoints)) {
   const module = await import(name);

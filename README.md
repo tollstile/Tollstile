@@ -67,6 +67,7 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 | [`tollstile`](./packages/tollstile) | Core, policies, requirements, test rail, memory ledger | Tested |
 | [`@tollstile/hono`](./packages/hono) · [`express`](./packages/express) · [`next`](./packages/next) · [`fetch`](./packages/fetch) | HTTP adapters | Tested |
 | [`@tollstile/mcp`](./packages/mcp) | Paid MCP tools | Tested with the MCP SDK |
+| [`@tollstile/proxy`](./packages/proxy) | A paid gateway in front of any HTTP API or MCP server — Python (FastAPI, MCP SDK), Go, Rails | Tested end to end in front of FastAPI and the MCP Python SDK |
 | [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | x402 exact and MPP Stripe verified in test environments; others experimental |
 | [`@tollstile/postgres`](./packages/postgres) · [`sqlite`](./packages/sqlite) | Ledgers | Shared conformance suite |
 | [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
