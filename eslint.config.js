@@ -59,7 +59,7 @@ export default tseslint.config(
   },
   {
     // The proxy's Node server and CLI run on Node by design; the proxy itself stays Web-standard.
-    files: ['packages/proxy/src/node.ts', 'packages/proxy/src/cli.ts'],
+    files: ['packages/proxy/src/node.ts', 'packages/proxy/src/cli.ts', 'packages/tollstile/src/cli.ts'],
     rules: { 'no-restricted-imports': 'off', 'no-console': 'off' },
   },
   {

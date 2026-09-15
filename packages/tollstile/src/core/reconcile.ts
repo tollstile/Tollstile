@@ -12,21 +12,48 @@ import {
 } from './lifecycle';
 import { policyExecutor } from './policy-executor';
 import { callProvider } from './provider-call';
-import { isChargeTerminal, type FulfillmentState } from './states';
+import type { Money } from './money';
+import { isChargeTerminal, type ChargeStates, type FulfillmentState } from './states';
+
+/** One charge reconciliation looked at, and where it ended up. */
+export type ReconciledCharge = {
+  readonly id: string;
+  readonly resource: string;
+  readonly amount: Money;
+  readonly before: ChargeStates;
+  /** `null` when the charge could not be read back. */
+  readonly after: ChargeStates | null;
+};
 
 export type ReconcileReport = {
   readonly examined: number;
+  /** Charges that reached a terminal state. */
   readonly resolved: number;
+  /** Charges still unresolved, e.g. `unknown` while the provider cannot answer. */
   readonly pending: number;
+  readonly charges: readonly ReconciledCharge[];
+  /** Errors reported during the run, also delivered to `onEvent`. Messages never contain secrets. */
+  readonly errors: readonly { readonly chargeId: string | null; readonly code: string; readonly message: string }[];
 };
 
 /**
  * Resolves charges left mid-lifecycle by crashes or unknown provider outcomes. Outcomes are
  * never guessed: the provider is asked, and when the service may not exist, nothing is kept.
  */
-export async function reconcile(runtime: Runtime, olderThanMs: number): Promise<ReconcileReport> {
+export async function reconcile(parent: Runtime, olderThanMs: number): Promise<ReconcileReport> {
+  const errors: ReconcileReport['errors'][number][] = [];
+  const runtime: Runtime = {
+    ...parent,
+    emit(event) {
+      parent.emit(event);
+      if (event.type === 'error') {
+        errors.push({ chargeId: event.charge?.id ?? null, code: 'code' in event.error ? String(event.error.code) : 'ERROR', message: event.error.message });
+      }
+    },
+  };
   const before = new Date(runtime.clock.now().getTime() - olderThanMs);
   const charges = await runtime.ledger.pendingCharges(before);
+  const results: ReconciledCharge[] = [];
   let resolved = 0;
 
   for (const charge of charges) {
@@ -43,15 +70,24 @@ export async function reconcile(runtime: Runtime, olderThanMs: number): Promise<
         ),
         charge,
       });
+      const states = { payment: charge.payment, fulfillment: charge.fulfillment };
+      results.push({ id: charge.id, resource: charge.resource, amount: charge.amount, before: states, after: states });
       continue;
     }
 
     await resolve(runtime, executor, { charge, authorization }).then(undefined, skipConflict);
     const current = await runtime.ledger.getCharge(charge.id);
     if (current !== undefined && isChargeTerminal(current)) resolved += 1;
+    results.push({
+      id: charge.id,
+      resource: charge.resource,
+      amount: charge.amount,
+      before: { payment: charge.payment, fulfillment: charge.fulfillment },
+      after: current === undefined ? null : { payment: current.payment, fulfillment: current.fulfillment },
+    });
   }
 
-  return { examined: charges.length, resolved, pending: charges.length - resolved };
+  return { examined: charges.length, resolved, pending: charges.length - resolved, charges: results, errors };
 }
 
 async function resolve(runtime: Runtime, executor: Executor, current: Current): Promise<void> {

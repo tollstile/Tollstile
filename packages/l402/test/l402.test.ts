@@ -424,7 +424,7 @@ describe('reconciliation', () => {
     await pass.payment.fulfill();
 
     context.clock.advance(60_000);
-    expect(await context.toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 1, pending: 0 });
+    expect(await context.toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 1, pending: 0 });
     expect(context.charges()).toEqual(['settled/completed']);
   });
 

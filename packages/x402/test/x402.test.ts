@@ -311,7 +311,7 @@ describe('reconciliation', () => {
     expect(context.errors()[0]).toMatchObject({ code: 'PROVIDER_TIMEOUT' });
 
     context.clock.advance(60_000);
-    expect(await context.toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 1, pending: 0 });
+    expect(await context.toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 1, pending: 0 });
     expect(context.charges()).toEqual(['settled/completed']);
     expect(context.ledger.charges()[0]?.settlement).toMatchObject({ reference: expect.stringMatching(/^0x/) as unknown, details: { amount: '10000' } });
     expect(context.network.calls.settle).toHaveLength(1);
@@ -324,7 +324,7 @@ describe('reconciliation', () => {
     expect(context.charges()).toEqual(['unknown/completed']);
 
     context.clock.advance(30_000);
-    expect(await context.toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 0, pending: 1 });
+    expect(await context.toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 0, pending: 1 });
     expect(context.errors().at(-1)?.message).toMatch(/unused but valid/);
 
     context.clock.advance(60_000);
