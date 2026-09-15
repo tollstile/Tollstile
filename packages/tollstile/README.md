@@ -23,7 +23,8 @@ Wrap routes with an adapter such as [`@tollstile/hono`](https://www.npmjs.com/pa
 | `subscriber`, `credits`, `payPerCall`, `memoryBalance` | Access policies |
 | `limit`, `payers`, `when`, `amountOver` | Requirements |
 | `testRail`, `memoryLedger` | Local development and tests |
-| `tollstile/testing` | `fakeClock`, `httpContext`, `mcpContext` |
+| `createRail` | Build a rail for any payment protocol or provider ([guide](https://tollstile.com/docs/rails/build-a-rail)) |
+| `tollstile/testing` | `fakeClock`, `httpContext`, `mcpContext`, `railConformance` |
 
 Docs: https://tollstile.com/docs · For coding agents: https://tollstile.com/llms.txt
 

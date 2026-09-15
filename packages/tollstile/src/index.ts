@@ -86,5 +86,6 @@ export { limit, type LimitOptions } from './requirements/limit';
 export { payers, type PayersOptions } from './requirements/payers';
 export { amountOver, when, type Condition } from './requirements/when';
 
+export { createRail, type RailDefinition } from './rails/create-rail';
 export { testRail, type Simulation, type TestData, type TestRail, type TestRailOptions } from './rails/test/test-rail';
 export { applyAccounting, memoryLedger, type MemoryLedgerOptions } from './ledgers/memory/memory-ledger';

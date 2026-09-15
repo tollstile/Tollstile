@@ -333,7 +333,7 @@ A `402` additionally carries `price`, `variable`, `quote`, `nonce`, `expiresAt`,
 
 | Component | Proven by |
 |---|---|
-| Rail | `railConformance()` from `tollstile/testing`, run in the rail's own test suite against its fake provider: offer, challenge, absent/invalid/valid verification, replay, settle idempotency by key, unknown outcomes, lookup after a lost response, refund and release, redaction |
+| Rail | built with `createRail()`, which checks declarations and every `verify` result at runtime; proven by `railConformance()` from `tollstile/testing`, run in the rail's own test suite against its fake provider: offer, challenge, absent/invalid/valid verification, replay, settle idempotency by key, unknown outcomes, lookup after a lost response, refund and release, redaction |
 | Ledger | the shared ledger conformance suite, run against memory, Postgres, and SQLite |
 | Adapter | the adapter checklist in §2 and §10, tested with the test rail: 402 → pay → 200, handler failure releases, rejected settlement withholds output, idempotency headers forwarded |
 | Core | the core test suite and mutation checks on every guard named in this document |
