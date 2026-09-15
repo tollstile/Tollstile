@@ -1,7 +1,29 @@
 {
   "name": "@tollstile/express",
   "version": "0.0.0",
-  "description": "Express adapter for Tollstile.",
+  "description": "Express middleware to charge per API call with x402, MPP, credits, and subscriptions. Holds the response until payment settles.",
+  "keywords": [
+    "express",
+    "express-middleware",
+    "x402",
+    "x402-express",
+    "mpp",
+    "agent-payments",
+    "api-monetization",
+    "paid-api",
+    "pay-per-call",
+    "payment-middleware"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/express"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

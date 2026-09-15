@@ -1,7 +1,30 @@
 {
   "name": "@tollstile/mpp",
   "version": "0.0.0",
-  "description": "MPP rail for Tollstile: charge and session intents, Stripe and Tempo methods.",
+  "description": "Machine Payments Protocol (MPP) for APIs and MCP tools: Stripe and Tempo charges with WWW-Authenticate: Payment challenges and receipts. A Tollstile rail.",
+  "keywords": [
+    "mpp",
+    "machine-payments-protocol",
+    "machine-payments",
+    "stripe",
+    "tempo",
+    "agent-payments",
+    "ai-agents",
+    "mcp-payments",
+    "api-monetization",
+    "pay-per-call",
+    "http-402"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/mpp"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

@@ -1,7 +1,30 @@
 {
   "name": "@tollstile/mcp",
   "version": "0.0.0",
-  "description": "MCP server adapter for Tollstile.",
+  "description": "Charge for MCP tools: paid tools for the MCP TypeScript SDK with x402, MPP, credits, and subscriptions. Payment challenges, receipts, and refunds handled for you.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "mcp-payments",
+    "paid-mcp-tools",
+    "x402",
+    "mpp",
+    "agent-payments",
+    "ai-agents",
+    "pay-per-call",
+    "api-monetization"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

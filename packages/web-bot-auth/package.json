@@ -1,7 +1,27 @@
 {
   "name": "@tollstile/web-bot-auth",
   "version": "0.0.0",
-  "description": "verifiedAgent() requirement for Tollstile using HTTP message signatures.",
+  "description": "Allow only verified AI agents: verify Web Bot Auth HTTP message signatures (RFC 9421) before an agent can pay or access a route. A Tollstile requirement.",
+  "keywords": [
+    "web-bot-auth",
+    "http-message-signatures",
+    "rfc9421",
+    "agent-identity",
+    "verified-agents",
+    "bot-authentication",
+    "ai-agents",
+    "agent-payments"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/web-bot-auth"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

@@ -1,7 +1,31 @@
 {
   "name": "@tollstile/x402",
   "version": "0.0.0",
-  "description": "x402 rail for Tollstile: exact and upto schemes over HTTP and MCP.",
+  "description": "x402 payments for APIs and MCP tools: accept USDC with the exact and upto schemes, verify through a facilitator, and reconcile on-chain. A Tollstile rail.",
+  "keywords": [
+    "x402",
+    "x402-server",
+    "usdc",
+    "base",
+    "stablecoin",
+    "agent-payments",
+    "machine-payments",
+    "ai-agents",
+    "mcp-payments",
+    "api-monetization",
+    "pay-per-call",
+    "http-402"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/x402"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

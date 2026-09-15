@@ -1,7 +1,28 @@
 {
   "name": "@tollstile/postgres",
   "version": "0.0.0",
-  "description": "Postgres ledger for Tollstile. Bring your own client.",
+  "description": "Postgres ledger for Tollstile payments: authorizations, charges, and reconciliation in your own database. Works with pg, postgres.js, Neon, and PGlite.",
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "ledger",
+    "payments",
+    "agent-payments",
+    "reconciliation",
+    "idempotency",
+    "neon",
+    "pglite"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/postgres"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

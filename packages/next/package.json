@@ -1,7 +1,30 @@
 {
   "name": "@tollstile/next",
   "version": "0.0.0",
-  "description": "Next.js route handler adapter for Tollstile.",
+  "description": "Charge per call for Next.js App Router route handlers with x402, MPP, credits, and subscriptions.",
+  "keywords": [
+    "nextjs",
+    "next",
+    "route-handler",
+    "app-router",
+    "x402",
+    "mpp",
+    "agent-payments",
+    "api-monetization",
+    "paid-api",
+    "pay-per-call",
+    "payment-middleware"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/next"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
