@@ -1,0 +1,29 @@
+{
+  "name": "@tollstile/mcp",
+  "version": "0.0.0",
+  "description": "MCP server adapter for Tollstile.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.23.0",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "tollstile": "workspace:^"
+  }
+}

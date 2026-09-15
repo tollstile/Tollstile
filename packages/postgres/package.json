@@ -1,0 +1,28 @@
+{
+  "name": "@tollstile/postgres",
+  "version": "0.0.0",
+  "description": "Postgres ledger for Tollstile. Bring your own client.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "tollstile": "workspace:^"
+  }
+}

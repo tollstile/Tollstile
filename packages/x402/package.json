@@ -1,0 +1,28 @@
+{
+  "name": "@tollstile/x402",
+  "version": "0.0.0",
+  "description": "x402 rail for Tollstile: exact and upto schemes over HTTP and MCP.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@x402/core": "2.25.0",
+    "tollstile": "workspace:^"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "name": "@tollstile/hono",
+  "version": "0.0.0",
+  "description": "Hono middleware for Tollstile: charge per call for Hono routes on Node, Bun, Deno, and Cloudflare Workers with x402, MPP, credits, and subscriptions.",
+  "keywords": [
+    "hono",
+    "hono-middleware",
+    "x402",
+    "x402-hono",
+    "mpp",
+    "agent-payments",
+    "api-monetization",
+    "paid-api",
+    "pay-per-call",
+    "payment-middleware",
+    "cloudflare-workers"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/hono"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "hono": "^4.6.0",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "hono": "4.13.7",
+    "tollstile": "workspace:^"
+  }
+}

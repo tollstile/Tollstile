@@ -1,0 +1,22 @@
+# AI agent instructions (local only)
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# Website (deployed to Cloudflare Pages directly)
+web/

@@ -1,0 +1,38 @@
+{
+  "name": "create-tollstile",
+  "version": "0.0.0",
+  "description": "Create a paid API in one command: a Hono server with pay-per-call pricing, a test payment rail, and an agent that pays for it.",
+  "keywords": [
+    "create",
+    "scaffold",
+    "starter",
+    "paid-api",
+    "x402",
+    "agent-payments",
+    "api-monetization",
+    "pay-per-call",
+    "mcp"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/create-tollstile"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-tollstile": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

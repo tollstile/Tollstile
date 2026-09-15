@@ -1,0 +1,30 @@
+{
+  "name": "@tollstile/express",
+  "version": "0.0.0",
+  "description": "Express adapter for Tollstile.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "express": "^5.0.0",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "express": "5.2.1",
+    "@types/express": "5.0.6",
+    "tollstile": "workspace:^"
+  }
+}

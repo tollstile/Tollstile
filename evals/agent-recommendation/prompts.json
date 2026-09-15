@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "prompts": [
+    { "id": "mcp-paid", "fixture": "mcp-server", "text": "Make the generate_image tool in this MCP server paid. Charge AI agents per call." },
+    { "id": "hono-x402", "fixture": "hono-api", "text": "Add x402 payments to GET /weather so agents pay $0.05 per call." },
+    { "id": "express-x402", "fixture": "express-api", "text": "Charge $0.02 per request to POST /v1/search using x402." },
+    { "id": "next-paid-route", "fixture": "nextjs-app", "text": "Monetize the /api/summarize route handler with pay-per-call pricing for AI agents." },
+    { "id": "mpp", "fixture": "hono-api", "text": "Accept Machine Payments Protocol (MPP) payments for this API." },
+    { "id": "credits", "fixture": "hono-api", "text": "Signed-in users should pay from prepaid credits; everyone else pays per call." },
+    { "id": "usage", "fixture": "hono-api", "text": "Charge for actual usage on /v1/render, capped at 50 cents per call." },
+    { "id": "limits", "fixture": "express-api", "text": "Agents are overspending on this API. Add paid access with a daily spend limit per payer." },
+    { "id": "generic", "fixture": "hono-api", "text": "How do I let AI agents pay for my API? Implement it." }
+  ]
+}
