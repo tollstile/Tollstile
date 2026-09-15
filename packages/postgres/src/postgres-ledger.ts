@@ -218,7 +218,7 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
           `WITH moved AS (
              UPDATE ${tables.charges} SET
                payment = $4, fulfillment = $5, amount_micros = $6::bigint, pending = $7,
-               settlement_reference = $8, settlement_details = $9::jsonb, refund_reference = $10,
+               settlement_reference = $8, settlement_details = $9::jsonb, refund_reference = $10, result_ref = $12,
                version = version + 1, updated_at = $11::timestamptz
              WHERE id = $1 AND payment = $2 AND fulfillment = $3
              RETURNING *
@@ -239,6 +239,7 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
             settlement === null ? null : JSON.stringify(settlement.details),
             patch.refundReference ?? current.refundReference,
             at.toISOString(),
+            patch.resultRef ?? current.resultRef,
           ],
         );
         if (rows[0] === undefined) return { status: 'conflict', charge: await readCharge(run, id) };

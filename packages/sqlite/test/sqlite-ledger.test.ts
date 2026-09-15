@@ -323,6 +323,26 @@ describe('with createTollstile', () => {
     expect((await ledger.getCharge(first.chargeId ?? ''))?.requestHash).toEqual(expect.any(String));
   });
 
+  it('returns the result reference the handler stored to a keyed retry that is already paid', async () => {
+    const { toll, rail, ledger } = setup({ authorization: 'reusable' });
+    const gate = toll.price('$0.10');
+    const enter = () =>
+      gate.enter(httpContext(new Request('http://localhost/weather', { headers: { payment: 'test proof=c limit=$1', 'idempotency-key': 'job-1' } })));
+
+    const first = await enter();
+    if (first.kind !== 'admitted') throw new Error('expected admission');
+    await first.pass.payment.fulfill({ resultRef: 'jobs/42' });
+    expect(await first.pass.complete('succeeded')).toMatchObject({ settlement: 'settled' });
+    expect((await ledger.getCharge(first.pass.payment.chargeId ?? ''))?.resultRef).toBe('jobs/42');
+
+    const retry = await enter();
+    if (retry.kind !== 'denied') throw new Error('expected a denial');
+    const response = toResponse(retry.denial);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: 'already_paid' }, result: 'jobs/42' });
+    expect(rail.effects.settlements).toBe(1);
+  });
+
   it('accepts the same proof again after the handler failed, and settles once', async () => {
     const { toll, rail, ledger } = setup();
     const gate = toll.price('$0.01');

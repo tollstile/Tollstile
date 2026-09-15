@@ -106,6 +106,15 @@ A quote commits to the request it priced:
 - A single-use proof whose request does not match its quote's commitment MUST be refused with `quote_mismatch` before any authorization or charge is written.
 - A reusable authorization outlives one request: each request pays its own current price against the authorization's limit, and the commitment is not compared.
 
+### Execution plan
+
+When a route is defined, core compiles it against the configured rails into an **execution plan**: for each rail that can serve the route, its flow, when it settles relative to the handler, its authorization kind, whether it can settle less than it authorized, and what happens when the handler fails; for each rail that cannot, the capability it lacks.
+
+- A rail whose declarations no route could use (no `lookup`; `upfront` without `refund`) MUST be refused at startup.
+- A rail that cannot serve a particular route MUST be excluded from that route, with its reason. A route no rail can serve MUST be refused at startup.
+- Core MUST verify proofs and issue offers only for the rails in the plan. A computed price that turns out to be `upTo()` uses only the planned rails that settle variable amounts.
+- The plan is observable: `gate.plan`, and `toll.explain(gate)` for people.
+
 ### Rails and quotes
 
 - A rail with `quotes: true` MUST carry the quote token inside its protocol so that it is echoed and integrity-protected by that protocol, and MUST return the opened quote from `verify`.
@@ -168,6 +177,7 @@ Core picks `authorization` when the rail supports it. `upfront` without `refund`
 - On a fixed price, the charged amount is the price.
 - On `upTo(max)`, the handler MUST call `payment.fulfill({ amount })` with the amount used, `0 ≤ amount ≤ max`. Succeeding without it releases the charge and emits `FULFILLMENT_MISSING`: nothing is charged, never the maximum.
 - `fulfill` marks fulfillment `completed` at the point the service exists. A later handler failure MUST NOT undo a completed fulfillment.
+- `fulfill({ resultRef })` MAY record where the handler stored the result (1–1024 characters, never a secret). Ledgers MUST persist it; it is returned to idempotent retries (§11). Tollstile never stores results.
 - Metering is not a protocol feature. A rail declares `variableAmount: true` if it can settle less than it authorized; core never invents a variable-amount scheme on a rail that lacks one.
 
 ---
@@ -236,7 +246,7 @@ A retry by the same payer with the same key finds the existing charge:
 |---|---|
 | reserved or settling, fulfillment pending or running | `409 request_in_progress`, retry later |
 | `unknown` | `503 payment_outcome_unknown`, retry later with the same proof and key |
-| settled and completed | `409 already_paid` with the charge id and settlement reference; the handler does not run again and nothing is charged |
+| settled and completed | `409 already_paid` with the charge id, settlement reference, and `result` (the recorded `resultRef`, or `null`); the handler does not run again and nothing is charged |
 | failed (settlement rejected) | `402 settlement_rejected` with a fresh challenge |
 | released, or refunded | a new attempt: a new charge under the same key, and the handler runs |
 
@@ -247,7 +257,7 @@ Without a key:
 - A **single** proof presented again while its charge is not released is refused with `409 proof_already_used`. The payer is not asked to pay again.
 - A **reusable** authorization presented again is a new request and is charged again. Clients that retry reusable credentials SHOULD send an idempotency key.
 
-Tollstile does not store handler responses. A server that must return the original response on `already_paid` looks it up by charge id, which the handler received as `payment.chargeId`.
+Tollstile does not store handler responses. A handler that must be able to return its original result records where it stored it with `payment.fulfill({ resultRef })`, and a retry receives that reference in `already_paid`.
 
 ---
 

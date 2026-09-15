@@ -58,7 +58,7 @@ const toll = createTollstile({ rails: [testRail()], ledger });
 
 Later releases that change the schema will ship a separate, additive migration and say so in the changelog. The ledger never alters tables itself.
 
-> **Pre-release schema changes.** Until the first release, `postgresSchema` is edited in place and no migration is shipped. The `request_hash` column on `tollstile_charges` (the hash of the request an idempotency key was first used with) was added this way. A database created from an earlier build needs `ALTER TABLE tollstile_charges ADD COLUMN request_hash text;`, because `CREATE TABLE IF NOT EXISTS` leaves an existing table unchanged.
+> **Pre-release schema changes.** Until the first release, `postgresSchema` is edited in place and no migration is shipped. The `request_hash` column on `tollstile_charges` (the hash of the request an idempotency key was first used with) was added this way. The `result_ref` column (where the handler stored its result, from `payment.fulfill({ resultRef })`, returned to retries answered `already_paid`) was added the same way. A database created from an earlier build needs `ALTER TABLE tollstile_charges ADD COLUMN request_hash text;` and `ALTER TABLE tollstile_charges ADD COLUMN result_ref text;` for whichever column it lacks, because `CREATE TABLE IF NOT EXISTS` leaves an existing table unchanged.
 
 ## Adapters
 
@@ -158,8 +158,8 @@ DELETE FROM tollstile_claims WHERE expires_at < now() - interval '1 day';
 
 Tested in this repository:
 
-- The shared ledger conformance suite, run against both `memoryLedger` and `postgresLedger` on **PGlite 0.5.8** (PostgreSQL 17 compiled to WASM): every `createCharge` status, single-use busy versus a released retry, reusable capacity, compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, request hashes, an existing charge id under another authorization, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
-- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, an idempotency-key retry answered as `already_paid`, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
+- The shared ledger conformance suite, run against both `memoryLedger` and `postgresLedger` on **PGlite 0.5.8** (PostgreSQL 17 compiled to WASM): every `createCharge` status, single-use busy versus a released retry, reusable capacity, compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, request hashes, result references, an existing charge id under another authorization, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
+- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, an idempotency-key retry answered as `already_paid` with the handler's `resultRef`, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
 - Rollback when a statement fails mid-transaction.
 
 Not verified:

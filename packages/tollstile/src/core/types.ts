@@ -1,3 +1,4 @@
+import type { ExecutionPlan } from './capabilities';
 import type { DenialCode, DenialError } from './denials';
 import type { Money } from './money';
 import type { ChargeStates, Flow, FulfillmentState, PaymentState, PendingOperation } from './states';
@@ -123,6 +124,8 @@ export type Charge = {
   readonly refundReference: string | null;
   /** Hash of the request an idempotency key was first used with; `null` without a key. */
   readonly requestHash: string | null;
+  /** Where the handler stored the result, from `payment.fulfill({ resultRef })`. Returned to retries. */
+  readonly resultRef: string | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 };
@@ -149,6 +152,7 @@ export type ChargePatch = {
   readonly pending?: PendingOperation | null;
   readonly settlement?: Settlement;
   readonly refundReference?: string;
+  readonly resultRef?: string;
 };
 
 export type CreateChargeResult =
@@ -421,6 +425,12 @@ export type PriceOptions = {
 export type FulfillOptions = {
   /** The final amount on a variable route, e.g. `"$0.12"`. */
   readonly amount?: string;
+  /**
+   * Where you stored this request's result, e.g. a job id or object key. A retry with the same
+   * idempotency key gets it back in its `already_paid` answer. Tollstile never stores the result itself.
+   * Up to 1024 characters; never a secret.
+   */
+  readonly resultRef?: string;
 };
 
 export type RailName<Rails extends readonly Rail[]> = Rails[number]['name'];
@@ -486,5 +496,7 @@ export type Entry<Rails extends readonly Rail[]> =
 
 export type Gate<Rails extends readonly Rail[]> = {
   readonly resource: string | undefined;
+  /** How this route runs a paid request on each rail, and why rails were excluded. */
+  readonly plan: ExecutionPlan;
   enter(context: Context): Promise<Entry<Rails>>;
 };

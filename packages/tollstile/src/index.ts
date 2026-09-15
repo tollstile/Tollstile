@@ -1,5 +1,6 @@
 export { createTollstile, upTo, type Tollstile } from './core/tollstile';
 export { toResponse } from './core/responses';
+export { formatPlan, type ExcludedRail, type ExecutionPlan, type RailPlan } from './core/capabilities';
 export { RETRY_AFTER_SECONDS, type DenialAction, type DenialCode, type DenialError } from './core/denials';
 export { IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_META, idempotencyKeyOf } from './core/idempotency';
 export { TollstileError, type TollstileErrorCode } from './core/errors';

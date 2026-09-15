@@ -333,6 +333,10 @@ Run it on a schedule: a cron trigger on Workers, an interval in Node, or `npx to
 
 ---
 
+## Execution plan
+
+`toll.price()` compiles the route against the rails into an `ExecutionPlan`: per rail, the flow, when money moves relative to the handler, the authorization kind, whether up-to amounts are possible, and what a handler failure does; plus the rails excluded and why. Core verifies and offers only planned rails. `toll.explain(gate)` prints it. SPEC.md §5.
+
 ## Idempotency and errors
 
 - **Idempotency keys** (`Idempotency-Key`, or `_meta["tollstile/idempotency-key"]`) are scoped to the payer. A retry finds the first attempt's charge and is answered from its state: in progress, already paid, outcome unknown, or rejected; a released attempt runs again. A key reused for a different request is refused. Rails may supply a protocol payment identifier as the key. A rail whose provider rejects an already-used proof returns `invalid` with its `proofId`, so the retry is answered from the ledger rather than asked to pay again. SPEC.md §11.

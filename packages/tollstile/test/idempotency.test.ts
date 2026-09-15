@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { credits, memoryBalance, payPerCall, testRail, type Outcome, type Rail } from '../src/index';
+import { credits, memoryBalance, payPerCall, testRail, type Outcome, type Payment, type Rail } from '../src/index';
 import { httpContext, mcpContext } from '../src/testing/index';
 import { call, setup } from './helpers';
 
@@ -40,6 +40,40 @@ describe('idempotency keys', () => {
 
     expect((await call(gate, { payment: 'test proof=b payer=bob', idempotencyKey: 'shared' })).status).toBe(200);
     expect(rail.effects.settlements).toBe(2);
+  });
+
+  it('returns the result reference the handler recorded to a retry of a paid request', async () => {
+    const { toll } = setup({ rail: { authorization: 'reusable' } });
+    const gate = toll.price('$0.10');
+    const handler = async (payment: Payment<readonly Rail[]>) => {
+      await payment.fulfill({ resultRef: 'jobs/42' });
+      return 'succeeded' as const;
+    };
+    await call(gate, { payment: reusable, idempotencyKey: 'k1', handler });
+
+    const retry = await call(gate, { payment: reusable, idempotencyKey: 'k1', handler });
+    expect(retry).toMatchObject({ status: 409, handlerRuns: 0, body: { error: { code: 'already_paid' }, result: 'jobs/42' } });
+  });
+
+  it('records the result reference on upfront charges too, and refuses an oversized one', async () => {
+    const { toll, ledger } = setup();
+    const gate = toll.price('$0.01', { flow: 'upfront' });
+    await call(gate, {
+      payment: 'test proof=u1',
+      handler: async (payment): Promise<Outcome> => {
+        await payment.fulfill({ resultRef: 'files/out.png' });
+        return 'succeeded';
+      },
+    });
+    expect(ledger.charges()[0]?.resultRef).toBe('files/out.png');
+
+    await expect(
+      call(gate, { payment: 'test proof=u2', handler: async (payment): Promise<Outcome> => {
+          await payment.fulfill({ resultRef: 'x'.repeat(1025) });
+          return 'succeeded';
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFIG_INVALID' });
   });
 
   it('charges a reusable credential again without a key, as documented', async () => {

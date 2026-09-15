@@ -496,6 +496,7 @@ describe('charge list mapping', () => {
     settlement: null,
     refundReference: null,
     requestHash: null,
+    resultRef: null,
     createdAt: created,
     updatedAt: created,
   });

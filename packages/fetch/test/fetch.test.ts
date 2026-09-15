@@ -14,6 +14,7 @@ function countCompletions<Rails extends readonly Rail[]>(gate: Gate<Rails>) {
   let completions = 0;
   const counted: Gate<Rails> = {
     resource: gate.resource,
+    plan: gate.plan,
     async enter(context) {
       const entry = await gate.enter(context);
       if (entry.kind === 'denied') return entry;

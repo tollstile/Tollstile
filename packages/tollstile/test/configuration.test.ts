@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTollstile, memoryLedger, testRail, type Rail } from '../src/index';
+import { createTollstile, limit, memoryLedger, payPerCall, testRail, upTo, type Rail } from '../src/index';
 import { mcpContext } from '../src/testing/index';
 import { call, setup } from './helpers';
 
@@ -21,9 +21,14 @@ describe('configuration', () => {
   });
 
   it('refuses the upfront flow on rails that cannot refund', () => {
-    const toll = createTollstile({ rails: [withCapabilities({ refund: false })], ledger: memoryLedger() });
+    const toll = createTollstile({ rails: [testRail({ refund: false })], ledger: memoryLedger() });
     expect(() => toll.price('$0.01', { flow: 'upfront' })).toThrow(expect.objectContaining({ code: 'CAPABILITY_MISSING' }));
     expect(() => toll.price('$0.01')).not.toThrow();
+  });
+
+  it('refuses a rail that declares the upfront flow without refunds, on any route', () => {
+    const toll = createTollstile({ rails: [withCapabilities({ refund: false })], ledger: memoryLedger() });
+    expect(() => toll.price('$0.01')).toThrow(expect.objectContaining({ code: 'CAPABILITY_MISSING' }));
   });
 
   it('refuses dynamic prices on rails that cannot carry quotes', () => {
@@ -46,6 +51,51 @@ describe('configuration', () => {
     expect(() =>
       createTollstile({ rails: [testRail(), { ...testRail(), name: 'live', livemode: true }], ledger: memoryLedger(), secret: 's'.repeat(32) }),
     ).toThrow(expect.objectContaining({ code: 'CONFIG_INVALID' }));
+  });
+});
+
+describe('execution plan', () => {
+  const fixedOnly = (): Rail => {
+    const rail = testRail({ refund: false });
+    return { ...rail, name: 'fixed', capabilities: { ...rail.capabilities, variableAmount: false, quotes: false } };
+  };
+
+  it('keeps the rails that can serve a route and says why the others cannot', () => {
+    const toll = createTollstile({ rails: [testRail(), fixedOnly()], ledger: memoryLedger() });
+    const gate = toll.price(upTo('$1'));
+
+    expect(gate.plan).toMatchObject({
+      pricing: 'up_to',
+      rails: [{ rail: 'test', flow: 'authorization', settles: 'after_handler', amounts: 'up_to', onHandlerFailure: 'release' }],
+      excluded: [{ rail: 'fixed', needs: 'variable amounts in the authorization flow' }],
+    });
+    expect(toll.explain(gate)).toContain('fixed: needs variable amounts in the authorization flow');
+  });
+
+  it('never accepts a proof on an excluded rail, and offers only planned rails', async () => {
+    const fixed = fixedOnly();
+    const toll = createTollstile({ rails: [fixed, testRail()], ledger: memoryLedger() });
+    const gate = toll.price(() => '$0.01');
+
+    expect(gate.plan.excluded).toEqual([expect.objectContaining({ rail: 'fixed', needs: 'quotes' })]);
+    const result = await call(gate);
+    expect((result.body.accepts as { rail: string }[]).map((offer) => offer.rail)).toEqual(['test']);
+  });
+
+  it('describes access, requirements, commitment, and per-rail behavior', () => {
+    const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
+    const gate = toll.price('$0.01', { flow: 'upfront', access: [payPerCall()], require: [limit({ perPayer: '10/hour' })] });
+
+    expect(toll.explain(gate)).toBe(
+      [
+        'Route $0.01',
+        '  pricing: fixed, quote bound to: route',
+        '  access: payPerCall',
+        '  requirements: limit',
+        '  rails:',
+        '    test: upfront flow, settles before handler, single authorization, fixed amounts, refund on handler failure',
+      ].join('\n'),
+    );
   });
 });
 

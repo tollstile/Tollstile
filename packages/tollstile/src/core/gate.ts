@@ -1,4 +1,4 @@
-import { flowFor } from './capabilities';
+import type { ExecutionPlan, RailPlan } from './capabilities';
 import { canonicalJson, deriveId, hex, sha256, sha256Bytes } from './codec';
 import { denialError, denialHeaders, errorJson, statusFor, type DenialCode } from './denials';
 import { TollstileError } from './errors';
@@ -49,9 +49,13 @@ export type Route = {
   readonly price: { readonly kind: 'fixed'; readonly price: Money; readonly variable: boolean } | { readonly kind: 'dynamic'; readonly compute: DynamicPrice };
   readonly access: readonly AccessPolicy[] | undefined;
   readonly requirements: readonly Requirement[];
-  readonly flow: Flow | undefined;
   readonly commit: Commitment;
+  readonly plan: ExecutionPlan;
+  /** The rails the plan kept, in configuration order, each with how it serves this route. */
+  readonly rails: readonly PlannedRail[];
 };
+
+type PlannedRail = { readonly rail: Rail; readonly plan: RailPlan };
 
 type Priced = { readonly price: Money; readonly variable: boolean };
 type Denied = { readonly kind: 'denied'; readonly denial: Denial };
@@ -74,6 +78,7 @@ const NOTHING_CHARGED: Completion = { settlement: 'none', receipt: NO_RECEIPT, d
 export function createGate<Rails extends readonly Rail[]>(runtime: Runtime, route: Route): Gate<Rails> {
   return {
     resource: route.resource,
+    plan: route.plan,
     async enter(input) {
       const context = route.resource === undefined ? input : { ...input, resource: route.resource };
       if (context.idempotencyKey !== null && !isValidIdempotencyKey(context.idempotencyKey)) {
@@ -192,12 +197,13 @@ async function admitReservation<Rails extends readonly Rail[]>(
 async function enterWithPayment<Rails extends readonly Rail[]>(runtime: Runtime, route: Route, context: Context): Promise<Entry<Rails>> {
   const fixed = route.price.kind === 'fixed' ? route.price : undefined;
 
-  for (const rail of runtime.rails) {
+  // Only rails the plan kept are consulted: a proof for a rail that cannot serve this route is never accepted.
+  for (const { rail, plan } of route.rails) {
     const terms: VerifyTerms = {
       resource: context.resource,
       price: fixed?.price ?? null,
       variable: fixed?.variable ?? false,
-      flow: flowFor(rail, route.flow, fixed?.variable ?? false, route.name),
+      flow: plan.flow,
       openQuote: (token) => runtime.quotes.open(token, context),
     };
     const verification = await callProvider(`${context.requestId}:verify:${rail.name}`, runtime.providerTimeoutMs, (operation) =>
@@ -215,7 +221,7 @@ async function enterWithPayment<Rails extends readonly Rail[]>(runtime: Runtime,
       case 'invalid':
         return (await alreadyUsed(runtime, route, context, rail, result.proofId, context.idempotencyKey ?? result.idempotencyKey ?? null)) ?? challenge(runtime, route, context, invalidProof(rail, result.reason));
       case 'valid':
-        return admitPayment<Rails>(runtime, route, context, rail, result);
+        return admitPayment<Rails>(runtime, route, context, { rail, plan }, result);
     }
   }
   return challenge(runtime, route, context, undefined);
@@ -264,10 +270,10 @@ async function admitPayment<Rails extends readonly Rail[]>(
   runtime: Runtime,
   route: Route,
   context: Context,
-  rail: Rail,
+  { rail, plan }: PlannedRail,
   proof: Extract<Awaited<ReturnType<Rail['verify']>>, { status: 'valid' }>,
 ): Promise<Entry<Rails>> {
-  const terms = await termsFor(route, rail, proof.quote, context);
+  const terms = await termsFor(route, { rail, plan }, proof.quote, context);
   if ('code' in terms) return challenge(runtime, route, context, terms);
   if (proof.limit !== null && rail.capabilities.authorization === 'single' && compare(proof.limit, terms.price) < 0) {
     return challenge(runtime, route, context, insufficient(terms.price, proof.limit));
@@ -363,7 +369,7 @@ async function admitPayment<Rails extends readonly Rail[]>(
  */
 async function termsFor(
   route: Route,
-  rail: Rail,
+  { rail, plan }: PlannedRail,
   quote: Quote | null,
   context: Context,
 ): Promise<(Priced & { readonly flow: Flow }) | Problem> {
@@ -372,7 +378,13 @@ async function termsFor(
     if (offer === undefined) {
       return { code: 'quote_offer_missing', message: `The quote has no offer for ${rail.name}. Pay with an offer from this response.` };
     }
-    if (rail.capabilities.authorization === 'reusable') return { ...(await resolvePrice(route, context)), flow: offer.flow };
+    if (rail.capabilities.authorization === 'reusable') {
+      const priced = await resolvePrice(route, context);
+      if (priced.variable && plan.amounts !== 'up_to') {
+        return { code: 'quote_offer_missing', message: `${rail.name} cannot settle a variable amount for this request. Pay with an offer from this response.` };
+      }
+      return { ...priced, flow: offer.flow };
+    }
     if (quote.commitment !== (await commitmentFor(route, context))) {
       return { code: 'quote_mismatch', message: 'The quote was issued for a different request. Pay with the new quote issued for this one.' };
     }
@@ -381,7 +393,7 @@ async function termsFor(
   if (route.price.kind === 'dynamic') {
     return { code: 'quote_required', message: 'This price is computed per request. Pay with the quote in this response.' };
   }
-  return { price: route.price.price, variable: route.price.variable, flow: flowFor(rail, route.flow, route.price.variable, route.name) };
+  return { price: route.price.price, variable: route.price.variable, flow: plan.flow };
 }
 
 /** Hashes what the quote is bound to. MCP calls bind tool arguments, not the JSON-RPC envelope, which changes per retry. */
@@ -439,7 +451,7 @@ function settleAfter(runtime: Runtime, executor: Executor, reserved: Current, pr
         throw new TollstileError('ALREADY_COMPLETED', `fulfill() was already called for ${current.charge.id}. Call it once.`);
       }
       const amount = fulfilledAmount(options, priced);
-      current = await move(runtime, current.charge, { payment: 'reserved', fulfillment: 'completed' }, { amount });
+      current = await move(runtime, current.charge, { payment: 'reserved', fulfillment: 'completed' }, { amount, ...resultRefOf(options) });
     },
 
     async complete(outcome) {
@@ -507,7 +519,7 @@ function paidAtVerification(runtime: Runtime, rail: Rail, settled: Current): Lif
         throw new TollstileError('ALREADY_COMPLETED', `fulfill() was already called for ${current.charge.id}. Call it once.`);
       }
       fulfilledAmount(options, { price: current.charge.amount, variable: false });
-      current = await move(runtime, current.charge, { payment: 'settled', fulfillment: 'completed' });
+      current = await move(runtime, current.charge, { payment: 'settled', fulfillment: 'completed' }, resultRefOf(options));
     },
 
     async complete(outcome) {
@@ -532,6 +544,17 @@ function paidAtVerification(runtime: Runtime, rail: Rail, settled: Current): Lif
       return NONE;
     },
   };
+}
+
+const MAX_RESULT_REF_LENGTH = 1024;
+
+function resultRefOf(options: FulfillOptions | undefined): { readonly resultRef?: string } {
+  const resultRef = options?.resultRef;
+  if (resultRef === undefined) return {};
+  if (resultRef.length === 0 || resultRef.length > MAX_RESULT_REF_LENGTH) {
+    throw new TollstileError('CONFIG_INVALID', `payment.fulfill({ resultRef }) must be 1 to ${String(MAX_RESULT_REF_LENGTH)} characters.`);
+  }
+  return { resultRef };
 }
 
 function fulfilledAmount(options: FulfillOptions | undefined, priced: Priced): Money {
@@ -641,7 +664,7 @@ async function retried(runtime: Runtime, route: Route, context: Context, existin
             existing.fulfillment === 'completed'
               ? `This request was already paid (${existing.id}). It is not charged or run again.`
               : `This request was paid (${existing.id}) but not delivered, and the payment could not be refunded automatically. Contact the merchant.`,
-          extra: { ...extra, settlement: existing.settlement?.reference ?? null },
+          extra: { ...extra, settlement: existing.settlement?.reference ?? null, result: existing.resultRef },
         });
       }
       return inProgress(runtime, context, existing);
@@ -734,12 +757,17 @@ async function checkRequirements(
 
 async function challenge(runtime: Runtime, route: Route, context: Context, problem: Problem | undefined): Promise<Denied> {
   const priced = await resolvePrice(route, context);
+  const candidates = railsFor(route, priced.variable);
+  if (candidates.length === 0) {
+    throw new TollstileError(
+      'CAPABILITY_MISSING',
+      `Route "${route.name}" computed an upTo() price, but no configured rail can settle a variable amount. Return a fixed price, or add a rail with variable amounts.`,
+    );
+  }
   const available: { readonly rail: Rail; readonly offer: Offer }[] = [];
-  for (const rail of runtime.rails) {
+  for (const { rail, plan } of candidates) {
     const offer = await rail.offer({ resource: context.resource, price: priced.price, variable: priced.variable });
-    if (offer !== null) {
-      available.push({ rail, offer: { ...offer, flow: flowFor(rail, route.flow, priced.variable, route.name) } });
-    }
+    if (offer !== null) available.push({ rail, offer: { ...offer, flow: plan.flow } });
   }
 
   const { quote, token } = await runtime.quotes.issue({
@@ -799,6 +827,11 @@ function deny(runtime: Runtime, context: Context, problem: Problem): Denied {
   const body: JsonObject = { error: errorJson(error), resource: context.resource, ...problem.extra };
   runtime.emit({ type: 'request.denied', resource: context.resource, status, code: problem.code });
   return { kind: 'denied', denial: { status, error, body, headers: denialHeaders(error), offers: [] } };
+}
+
+/** A computed price is known per request; an `upTo()` result can only use rails planned for variable amounts. */
+function railsFor(route: Route, variable: boolean): readonly PlannedRail[] {
+  return variable ? route.rails.filter(({ plan }) => plan.amounts === 'up_to') : route.rails;
 }
 
 async function resolvePrice(route: Route, context: Context): Promise<Priced> {

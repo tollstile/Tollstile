@@ -51,6 +51,7 @@ function observe<Rails extends readonly Rail[]>(gate: Gate<Rails>, log: Log = []
   let completions = 0;
   const observed: Gate<Rails> = {
     resource: gate.resource,
+    plan: gate.plan,
     async enter(context) {
       const entry = await gate.enter(context);
       if (entry.kind === 'denied') return entry;
@@ -301,6 +302,7 @@ describe('@tollstile/express', () => {
     const outage = new Error('ledger unavailable');
     const failing: Gate<typeof gate extends Gate<infer Rails> ? Rails : never> = {
       resource: gate.resource,
+      plan: gate.plan,
       async enter(context) {
         const entry = await gate.enter(context);
         if (entry.kind === 'denied') return entry;

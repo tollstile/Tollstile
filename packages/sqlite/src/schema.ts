@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS ${charges} (
   settlement_details   TEXT    CHECK (json_valid(settlement_details)),
   refund_reference     TEXT,
   request_hash         TEXT,
+  result_ref           TEXT,
   version              INTEGER NOT NULL CHECK (version >= 1),
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL,

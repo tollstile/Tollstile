@@ -1,4 +1,4 @@
-import { assertRailServesRoute } from './capabilities';
+import { compilePlan, formatPlan } from './capabilities';
 import { TollstileError } from './errors';
 import { createGate, parsePriceInput, type Route } from './gate';
 import type { Runtime } from './lifecycle';
@@ -15,6 +15,8 @@ const MIN_SECRET_LENGTH = 32;
 export type Tollstile<Rails extends readonly Rail[]> = {
   /** Validates the route against every rail. Call it where routes are defined. */
   price(price: PriceInput | DynamicPrice, options?: PriceOptions): Gate<Rails>;
+  /** Describes how a route runs a paid request on each rail, and why rails were excluded. */
+  explain(gate: Gate<Rails>): string;
   /** Resolves charges left mid-lifecycle. Run it on a schedule. */
   reconcile(options?: { readonly olderThanMs?: number }): Promise<ReconcileReport>;
 };
@@ -41,9 +43,15 @@ export function createTollstile<const Rails extends readonly Rail[]>(config: Tol
       const fixed = typeof price === 'function' ? undefined : parsePriceInput(price, options.resource ?? describe(price));
       const name = options.resource ?? (typeof price === 'function' ? 'dynamic price' : describe(price));
 
-      for (const rail of config.rails) {
-        assertRailServesRoute(rail, { name, flow: options.flow, variable: fixed?.variable, dynamic: fixed === undefined });
-      }
+      const commit = options.commit ?? (typeof price === 'function' ? 'request' : 'route');
+      const plan = compilePlan(config.rails, {
+        name,
+        flow: options.flow,
+        pricing: fixed === undefined ? 'computed' : fixed.variable ? 'up_to' : 'fixed',
+        commitment: typeof commit === 'function' ? 'custom' : commit,
+        access: (options.access ?? []).map((policy) => policy.name),
+        requirements: (options.require ?? []).map((requirement) => requirement.name),
+      });
       for (const policy of options.access ?? []) registerBalance(balances, policy.name, policy.balance);
 
       const route: Route = {
@@ -52,10 +60,15 @@ export function createTollstile<const Rails extends readonly Rail[]>(config: Tol
         price: typeof price === 'function' ? { kind: 'dynamic', compute: price } : { kind: 'fixed', ...parsePriceInput(price, name) },
         access: options.access,
         requirements: options.require ?? [],
-        flow: options.flow,
-        commit: options.commit ?? (typeof price === 'function' ? 'request' : 'route'),
+        commit,
+        plan,
+        rails: plan.rails.flatMap((railPlan) => config.rails.filter((rail) => rail.name === railPlan.rail).map((rail) => ({ rail, plan: railPlan }))),
       };
       return createGate<Rails>(runtime, route);
+    },
+
+    explain(gate) {
+      return formatPlan(gate.plan);
     },
 
     reconcile(options = {}) {

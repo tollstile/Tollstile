@@ -134,6 +134,7 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
           settlement: null,
           refundReference: null,
           requestHash: null,
+          resultRef: null,
           createdAt: clock.now(),
           updatedAt: clock.now(),
         };
@@ -450,6 +451,26 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
         });
         expect(refunded.charge.updatedAt.getTime()).toBeGreaterThan(createdCharge.createdAt.getTime());
         expect(await ledger.getCharge('chg_1')).toEqual(refunded.charge);
+      });
+
+      it('sets the result reference from a patch and keeps it through later transitions', async () => {
+        const { ledger, open, created, move } = await setup();
+        await open();
+        const createdCharge = await created();
+        expect(createdCharge.resultRef).toBeNull();
+
+        const running = await move(createdCharge, state('reserved', 'running'), {});
+        expect(running.charge.resultRef).toBeNull();
+        const completed = await move(running.charge, state('reserved', 'completed'), { resultRef: 'jobs/42' });
+        expect(completed.charge.resultRef).toBe('jobs/42');
+
+        const settling = await move(completed.charge, state('settling', 'completed'), { pending: 'settle' });
+        const settled = await move(settling.charge, state('settled', 'completed'), { pending: null, settlement: { reference: 's_1', details: {} } });
+        expect(settled.charge.resultRef).toBe('jobs/42');
+        expect((await ledger.getCharge('chg_1'))?.resultRef).toBe('jobs/42');
+
+        const refundPending = await move(settled.charge, state('refund_pending', 'completed'), { pending: 'refund', resultRef: 'jobs/43' });
+        expect(refundPending.charge.resultRef).toBe('jobs/43');
       });
 
       it('stores settlement details that are JSON null', async () => {

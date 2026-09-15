@@ -193,6 +193,7 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
       const settlementReference = patch.settlement === undefined ? raw('c.settlement_reference') : sql`${patch.settlement.reference}`;
       const settlementDetails = patch.settlement === undefined ? raw('c.settlement_details') : sql`${JSON.stringify(patch.settlement.details)}`;
       const refundReference = patch.refundReference === undefined ? raw('c.refund_reference') : sql`${patch.refundReference}`;
+      const resultRef = patch.resultRef === undefined ? raw('c.result_ref') : sql`${patch.resultRef}`;
       // Compare-and-set on both axes. Every statement below uses this condition, and only the last
       // one changes the columns it reads, so all of them see the charge as it was before.
       const matches = sql`c.id = ${id} AND c.payment = ${from.payment} AND c.fulfillment = ${from.fulfillment}
@@ -220,7 +221,7 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
         sql`UPDATE ${charges} AS c SET
               payment = ${to.payment}, fulfillment = ${to.fulfillment}, amount_micros = ${amount}, pending = ${pending},
               settlement_reference = ${settlementReference}, settlement_details = ${settlementDetails},
-              refund_reference = ${refundReference}, version = c.version + 1, updated_at = ${time}
+              refund_reference = ${refundReference}, result_ref = ${resultRef}, version = c.version + 1, updated_at = ${time}
             WHERE ${matches}
             RETURNING id`,
         selectCharge(id),

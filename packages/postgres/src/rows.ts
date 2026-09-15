@@ -24,7 +24,7 @@ export const AUTHORIZATION_COLUMNS = `id, rail, payer, kind,
 export const CHARGE_COLUMNS = `id, authorization_id, request_id, resource, payer, flow, currency,
   reserved_micros::text AS reserved_micros, amount_micros::text AS amount_micros,
   payment, fulfillment, pending, settlement_reference, settlement_details::text AS settlement_details,
-  refund_reference, request_hash, ${isoText('created_at')} AS created_at, ${isoText('updated_at')} AS updated_at`;
+  refund_reference, request_hash, result_ref, ${isoText('created_at')} AS created_at, ${isoText('updated_at')} AS updated_at`;
 
 export function parseAuthorization(row: PostgresRow): Authorization {
   const limitCurrency = nullable(row, 'limit_currency', text);
@@ -62,6 +62,7 @@ export function parseCharge(row: PostgresRow): Charge {
     settlement: reference === null ? null : { reference, details: json(row, 'settlement_details') },
     refundReference: nullable(row, 'refund_reference', text),
     requestHash: nullable(row, 'request_hash', text),
+    resultRef: nullable(row, 'result_ref', text),
     createdAt: timestamp(row, 'created_at'),
     updatedAt: timestamp(row, 'updated_at'),
   };
