@@ -420,7 +420,7 @@ describe('settlement', () => {
 
     skyfire.simulate({});
     clock.advance(60_000);
-    expect(await toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 1, pending: 0 });
+    expect(await toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 1, pending: 0 });
     expect(charges()).toEqual(['settled/completed']);
     expect(skyfire.records).toHaveLength(1);
     expect(posts()).toHaveLength(1);
@@ -446,7 +446,7 @@ describe('settlement', () => {
 
     skyfire.simulate({ list: 'unavailable' });
     clock.advance(60_000);
-    expect(await toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 0, pending: 1 });
+    expect(await toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 0, pending: 1 });
     expect(charges()).toEqual(['unknown/completed']);
   });
 

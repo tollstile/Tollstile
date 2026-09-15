@@ -26,6 +26,8 @@ Wrap routes with an adapter such as [`@tollstile/hono`](https://www.npmjs.com/pa
 | `createRail` | Build a rail for any payment protocol or provider ([guide](https://tollstile.com/docs/rails/build-a-rail)) |
 | `tollstile/testing` | `fakeClock`, `httpContext`, `mcpContext`, `railConformance` |
 
+Run reconciliation from a terminal or cron: `npx tollstile reconcile --config tollstile.config.mjs --older-than 15m` ([guide](https://tollstile.com/docs/guides/reconciliation)).
+
 Docs: https://tollstile.com/docs · For coding agents: https://tollstile.com/llms.txt
 
 MIT © 2026 Paradigm AI Inc.

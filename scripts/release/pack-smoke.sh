@@ -36,6 +36,10 @@ fi
 cp "$root/scripts/release/smoke.mjs" ./smoke.mjs
 node smoke.mjs
 
+# The CLI loads and explains itself.
+npx --no-install tollstile --help | grep -q "tollstile reconcile"
+echo "tollstile CLI answered."
+
 # The project generator produces a project whose dependencies name this release.
 npx --no-install create-tollstile smoke-project > /dev/null
 test -f smoke-project/package.json

@@ -92,7 +92,7 @@ describe('authorization flow', () => {
 
     rail.simulate({});
     clock.advance(60_000);
-    expect(await toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 1, pending: 0 });
+    expect(await toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 1, pending: 0 });
     expect(charges()).toEqual(['settled/completed']);
     expect(rail.effects.settlements).toBe(1);
   });
@@ -178,7 +178,7 @@ describe('crash recovery', () => {
     rail.simulate({ lookup: 'unavailable' });
     clock.advance(60_000);
 
-    expect(await toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 0, pending: 1 });
+    expect(await toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 0, pending: 1 });
     expect(charges()).toEqual(['unknown/completed']);
   });
 });

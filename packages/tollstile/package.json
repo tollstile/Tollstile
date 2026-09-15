@@ -35,6 +35,9 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
+  "bin": {
+    "tollstile": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -51,5 +54,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "tsx": "4.23.13"
   }
 }

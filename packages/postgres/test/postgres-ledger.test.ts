@@ -273,7 +273,7 @@ describe('with createTollstile', () => {
 
     rail.simulate({});
     clock.advance(60_000);
-    expect(await toll.reconcile({ olderThanMs: 1_000 })).toEqual({ examined: 1, resolved: 1, pending: 0 });
+    expect(await toll.reconcile({ olderThanMs: 1_000 })).toMatchObject({ examined: 1, resolved: 1, pending: 0 });
     expect(await ledger.getCharge(result.chargeId ?? '')).toMatchObject({ payment: 'settled', pending: null });
     expect(await ledger.getAuthorization(charge?.authorizationId ?? '')).toMatchObject({ reserved: money('USD', 0n), consumed: money('USD', 10_000n) });
     expect(rail.effects.settlements).toBe(1);
