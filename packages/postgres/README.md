@@ -161,9 +161,14 @@ Tested in this repository:
 - The shared ledger conformance suite, run against both `memoryLedger` and `postgresLedger` on **PGlite 0.5.8** (PostgreSQL 17 compiled to WASM): every `createCharge` status, single-use busy versus a released retry, reusable capacity, compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, request hashes, result references, an existing charge id under another authorization, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
 - End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, an idempotency-key retry answered as `already_paid` with the handler's `resultRef`, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
 - Rollback when a statement fails mid-transaction.
+- **Real concurrency on PostgreSQL 16** (`test/concurrency.test.ts`, run in CI against a Postgres service and locally): four Tollstile instances on four `pg.Pool`s, like processes behind a load balancer.
+  - 100 concurrent requests with the same single-use proof: exactly one settles, 99 get `proof_already_used`, one provider settlement.
+  - 100 concurrent retries with the same idempotency key on a reusable credential: one charge, one settlement.
+  - 100 concurrent $0.05 charges against a $1 authorization: exactly 20 settle, `consumed_micros` ends at 1,000,000 and `reserved_micros` at 0.
+  - 40 lost settlements reconciled by two workers at the same time: each settled exactly once.
+  - 25 charges fulfilled by a process that died before settling, recovered by another instance.
 
 Not verified:
 
-- **Real lock contention.** PGlite has one connection and serializes transactions, so the concurrency tests confirm the outcome (one wins, totals stay within the limit) but not `FOR UPDATE` waiting between connections. To verify against a real server, run the conformance suite with a `pg.Pool` adapter of 10+ connections and fire 50 concurrent `createCharge` calls at one authorization; only one may return `created` for a single-use authorization, and `reserved_micros` must never exceed `limit_micros`.
 - **The `postgres.js` and Neon adapters** above were written from their documentation and not executed here. Run the conformance file (`test/ledger-conformance.ts`) against them before production use.
-- PostgreSQL versions other than 17. The schema uses only features available since PostgreSQL 9.5 (`ON CONFLICT`, partial indexes, `jsonb`).
+- PostgreSQL versions other than 16 and 17. The schema uses only features available since PostgreSQL 9.5 (`ON CONFLICT`, partial indexes, `jsonb`).

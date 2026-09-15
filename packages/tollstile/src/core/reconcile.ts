@@ -46,7 +46,7 @@ export async function reconcile(runtime: Runtime, olderThanMs: number): Promise<
       continue;
     }
 
-    await resolve(runtime, executor, { charge, authorization });
+    await resolve(runtime, executor, { charge, authorization }).then(undefined, skipConflict);
     const current = await runtime.ledger.getCharge(charge.id);
     if (current !== undefined && isChargeTerminal(current)) resolved += 1;
   }
@@ -148,6 +148,17 @@ async function resolveUnknown(runtime: Runtime, executor: Executor, current: Cur
       await settleCharge(runtime, executor, current, 'completed');
       return;
   }
+}
+
+/**
+ * Another reconcile worker, or the live request itself, moved the charge first. Every provider effect
+ * is preceded by a compare-and-set write, so the loser of that race has done nothing; it leaves the
+ * charge to the winner instead of aborting the rest of the run.
+ */
+function skipConflict(error: unknown): void {
+  // catch-reason: concurrent reconciliation is expected; only a transition conflict is recoverable here.
+  if (error instanceof TollstileError && error.code === 'TRANSITION_CONFLICT') return;
+  throw error;
 }
 
 function executorFor(runtime: Runtime, name: string): Executor | undefined {

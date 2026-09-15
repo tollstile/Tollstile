@@ -44,6 +44,8 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@types/pg": "8",
+    "pg": "8",
     "tollstile": "workspace:^"
   }
 }

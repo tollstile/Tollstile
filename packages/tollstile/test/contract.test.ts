@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memoryLedger, TollstileError, type Ledger, type Requirement } from '../src/index';
+import { createTollstile, memoryLedger, TollstileError, type Ledger, type Requirement } from '../src/index';
 import { call, setup } from './helpers';
 
 const unavailable = () => new TollstileError('PROVIDER_UNAVAILABLE', 'directory unreachable');
@@ -252,5 +252,33 @@ describe('memory ledger', () => {
     }
 
     expect((await ledger.spendSince('p', new Date(0))).total.map((money) => money.currency)).toEqual(['EUR', 'USD']);
+  });
+});
+
+describe('concurrent reconciliation', () => {
+  it('leaves a charge another worker moved first, and finishes the rest of its run', async () => {
+    const { toll, rail, ledger, clock, charges } = setup();
+    rail.simulate({ settle: 'timeout-after-effect' });
+    for (const proof of ['a', 'b', 'c']) await call(toll.price('$0.01'), { payment: `test proof=${proof}` });
+    rail.simulate({});
+    clock.advance(60 * 60_000);
+
+    // Another worker settles the first charge between this worker's read and its write.
+    const [first] = ledger.charges();
+    const racing: typeof ledger = {
+      ...ledger,
+      pendingCharges: async (before) => {
+        const pending = await ledger.pendingCharges(before);
+        if (first !== undefined) {
+          await ledger.transitionCharge(first.id, { payment: 'unknown', fulfillment: 'completed' }, { payment: 'settled', fulfillment: 'completed' }, clock.now(), { pending: null, settlement: { reference: 'other-worker', details: null } });
+        }
+        return pending;
+      },
+    };
+    const worker = createTollstile({ rails: [rail], ledger: racing, clock });
+
+    await expect(worker.reconcile()).resolves.toMatchObject({ examined: 3 });
+    expect(charges()).toEqual(['settled/completed', 'settled/completed', 'settled/completed']);
+    expect(rail.effects.settlements).toBe(3);
   });
 });
