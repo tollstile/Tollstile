@@ -71,7 +71,13 @@ async function processes(options: TestRailOptions = {}) {
   const db = await database();
   const rail: TestRail = testRail(options);
   const tolls = [0, 1, 2, 3].map(() => db.instance(rail));
-  return { ...db, rail, tolls };
+  /** The instance a request lands on, round robin. */
+  const on = (i: number) => {
+    const toll = tolls[i % tolls.length];
+    if (toll === undefined) throw new Error('no instance');
+    return toll;
+  };
+  return { ...db, rail, on };
 }
 
 async function send(toll: ReturnType<Awaited<ReturnType<typeof database>>['instance']>, price: string, headers: Record<string, string>) {
@@ -83,9 +89,9 @@ async function send(toll: ReturnType<Awaited<ReturnType<typeof database>>['insta
 
 describe.skipIf(url === undefined)('postgres ledger under real concurrency', () => {
   it(`admits one of ${String(CONCURRENCY)} concurrent requests carrying the same single-use proof`, async () => {
-    const { tolls, rail, rows } = await processes();
+    const { on, rail, rows } = await processes();
     const results = await Promise.all(
-      Array.from({ length: CONCURRENCY }, (_, i) => send(tolls[i % tolls.length]!, '$0.05', { payment: 'test proof=same-signature' })),
+      Array.from({ length: CONCURRENCY }, (_, i) => send(on(i), '$0.05', { payment: 'test proof=same-signature' })),
     );
 
     expect(results.filter((result) => result === 'settled')).toHaveLength(1);
@@ -95,9 +101,9 @@ describe.skipIf(url === undefined)('postgres ledger under real concurrency', () 
   });
 
   it(`charges once for ${String(CONCURRENCY)} concurrent retries with the same idempotency key`, async () => {
-    const { tolls, rail, rows } = await processes({ authorization: 'reusable' });
+    const { on, rail, rows } = await processes({ authorization: 'reusable' });
     const headers = { payment: 'test proof=credential limit=$100', 'idempotency-key': 'order-42' };
-    const results = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => send(tolls[i % tolls.length]!, '$0.05', headers)));
+    const results = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => send(on(i), '$0.05', headers)));
 
     expect(results.filter((result) => result === 'settled')).toHaveLength(1);
     expect(new Set(results.filter((result) => result !== 'settled'))).toEqual(
@@ -108,9 +114,9 @@ describe.skipIf(url === undefined)('postgres ledger under real concurrency', () 
   });
 
   it(`never spends past a reusable authorization's limit with ${String(CONCURRENCY)} concurrent charges`, async () => {
-    const { tolls, rail, rows } = await processes({ authorization: 'reusable' });
+    const { on, rail, rows } = await processes({ authorization: 'reusable' });
     const headers = { payment: 'test proof=funded-token limit=$1' };
-    const results = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => send(tolls[i % tolls.length]!, '$0.05', headers)));
+    const results = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => send(on(i), '$0.05', headers)));
 
     expect(results.filter((result) => result === 'settled')).toHaveLength(20);
     expect(results.filter((result) => result === 'insufficient_authorization')).toHaveLength(CONCURRENCY - 20);
@@ -121,13 +127,13 @@ describe.skipIf(url === undefined)('postgres ledger under real concurrency', () 
   });
 
   it('settles every lost settlement exactly once when two reconcile workers run at the same time', async () => {
-    const { tolls, rail, rows } = await processes();
+    const { on, rail, rows } = await processes();
     rail.simulate({ settle: 'timeout-after-effect' });
-    const lost = await Promise.all(Array.from({ length: 40 }, (_, i) => send(tolls[i % tolls.length]!, '$0.05', { payment: `test proof=p${String(i)}` })));
+    const lost = await Promise.all(Array.from({ length: 40 }, (_, i) => send(on(i), '$0.05', { payment: `test proof=p${String(i)}` })));
     expect(new Set(lost)).toEqual(new Set(['unknown']));
     rail.simulate({});
 
-    const reports = await Promise.all([tolls[0]!.reconcile({ olderThanMs: 0 }), tolls[1]!.reconcile({ olderThanMs: 0 })]);
+    const reports = await Promise.all([on(0).reconcile({ olderThanMs: 0 }), on(1).reconcile({ olderThanMs: 0 })]);
 
     expect(reports.every((report) => report.examined > 0)).toBe(true);
     expect(rail.effects.settlements).toBe(40);
@@ -137,17 +143,17 @@ describe.skipIf(url === undefined)('postgres ledger under real concurrency', () 
   });
 
   it('recovers charges left mid-settlement by a crashed process, from another process', async () => {
-    const { tolls, rail, rows } = await processes();
+    const { on, rail, rows } = await processes();
     // The first process admits and fulfills, then dies before it can settle.
     for (let i = 0; i < 25; i += 1) {
-      const entry = await tolls[0]!.price('$0.05', { resource: 'GET /report' }).enter(
+      const entry = await on(0).price('$0.05', { resource: 'GET /report' }).enter(
         httpContext(new Request('https://api.example.com/report', { headers: { payment: `test proof=crash-${String(i)}` } })),
       );
       if (entry.kind !== 'admitted') throw new Error('expected admission');
       await entry.pass.payment.fulfill();
     }
 
-    await tolls[2]!.reconcile({ olderThanMs: 0 });
+    await on(2).reconcile({ olderThanMs: 0 });
 
     expect(rail.effects.settlements).toBe(25);
     expect(await rows(`SELECT payment, count(*)::text AS n FROM $prefixcharges GROUP BY payment`)).toEqual([{ payment: 'settled', n: '25' }]);
