@@ -14,5 +14,7 @@ export default defineConfig({
   },
   test: {
     include: ['packages/*/test/**/*.test.ts', 'examples/*/test/**/*.test.ts'],
+    // Examples that persist a ledger use an in-memory database under test, so runs never share state or leave files behind.
+    env: { TOLLSTILE_DB: ':memory:' },
   },
 });
