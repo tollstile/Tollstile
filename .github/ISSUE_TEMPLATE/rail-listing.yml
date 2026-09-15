@@ -1,0 +1,48 @@
+name: List a community rail
+description: Add a rail you publish to the Community rails page.
+labels: [rail, community]
+body:
+  - type: input
+    id: package
+    attributes:
+      label: npm package
+      placeholder: "tollstile-rail-acme"
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: Source repository
+    validations:
+      required: true
+  - type: input
+    id: protocol
+    attributes:
+      label: Protocol or provider, with a link to its specification or API reference
+    validations:
+      required: true
+  - type: textarea
+    id: conformance
+    attributes:
+      label: Conformance results
+      description: Which railConformance() cases pass, and why any are skipped.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification status
+      description: What was run against the provider's sandbox or testnet, and what was not.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: The package declares `tollstile` as a peer dependency and has the `tollstile-rail` keyword
+          required: true
+        - label: The README states capabilities, flows, stored data, retry behavior, and verification status
+          required: true
+        - label: No secrets, tokens, or payer evidence appear in errors, events, receipts, or logs
+          required: true

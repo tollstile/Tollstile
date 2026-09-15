@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/tollstile/tollstile/security/advisories/new
+    about: Do not open public issues for security problems.
+  - name: Documentation
+    url: https://tollstile.com/docs
+    about: Guides, concepts, and the Build a rail guide.
