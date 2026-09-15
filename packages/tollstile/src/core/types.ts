@@ -353,9 +353,10 @@ export type TollstileConfig<Rails extends readonly Rail[]> = {
   readonly ledger: Ledger;
   /**
    * Secrets that sign quotes. The first signs; all verify, for rotation. Required with live rails.
-   * With only test rails, a random secret is generated per instance.
+   * With only test rails, a random secret is generated on first use, per instance: quotes do not
+   * survive a restart or verify across processes (e.g. Workers isolates) without a configured secret.
    */
-  readonly secret?: string | readonly string[];
+  readonly secret?: string | readonly string[] | undefined;
   /** How long a quote is honored. Defaults to 5 minutes. */
   readonly quoteTtlMs?: number;
   readonly clock?: Clock;

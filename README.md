@@ -31,7 +31,7 @@ curl -i localhost:3000/weather                      # 402 Payment Required + sig
 curl -i -H "Payment: test" localhost:3000/weather   # 200 OK + receipt
 ```
 
-> **Pre-release.** The core, test rail, memory ledger, Hono adapter, and `create-tollstile` are implemented and tested. Live rails, SQL ledgers, and the MCP, Next.js, Express, and fetch adapters are in development.
+> **Pre-release, not on npm yet.** Every package is implemented and tested against fakes, published test vectors, and reference libraries. No rail has been verified against a live provider yet; each rail's README lists the exact steps. AP2 and the MPP Tempo session intent are experimental.
 
 ## Prompt your coding agent
 
@@ -57,19 +57,19 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 
 ## Packages
 
-| Package | Status |
-|---|---|
-| [`tollstile`](./packages/tollstile) | Implemented |
-| [`@tollstile/hono`](./packages/hono) | Implemented |
-| [`create-tollstile`](./packages/create-tollstile) | Implemented |
-| `@tollstile/x402` · `@tollstile/mpp` · `@tollstile/l402` · `@tollstile/kyapay` | In development |
-| `@tollstile/postgres` · `@tollstile/sqlite` | In development |
-| `@tollstile/mcp` · `@tollstile/next` · `@tollstile/express` · `@tollstile/fetch` | In development |
-| `@tollstile/web-bot-auth` · `@tollstile/ap2` | In development |
+| Package | What it is | Status |
+|---|---|---|
+| [`tollstile`](./packages/tollstile) | Core, policies, requirements, test rail, memory ledger | Tested |
+| [`@tollstile/hono`](./packages/hono) · [`express`](./packages/express) · [`next`](./packages/next) · [`fetch`](./packages/fetch) | HTTP adapters | Tested |
+| [`@tollstile/mcp`](./packages/mcp) | Paid MCP tools | Tested with the MCP SDK |
+| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | Tested against fakes; not yet verified live |
+| [`@tollstile/postgres`](./packages/postgres) · [`sqlite`](./packages/sqlite) | Ledgers | Shared conformance suite |
+| [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
+| [`create-tollstile`](./packages/create-tollstile) | Project generator | Tested |
 
 ## Contributing
 
-Read [PHILOSOPHY.md](./PHILOSOPHY.md), [DESIGN.md](./DESIGN.md), and [CODING_RULES.md](./CODING_RULES.md). Run `pnpm check` (Node 22).
+Read [PHILOSOPHY.md](./PHILOSOPHY.md), [SPEC.md](./SPEC.md) (the internal contract every rail, ledger, and adapter follows), [DESIGN.md](./DESIGN.md), and [CODING_RULES.md](./CODING_RULES.md). Run `pnpm check` (Node 22).
 
 ## License
 

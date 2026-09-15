@@ -9,7 +9,7 @@ A Tollstile ledger in your PostgreSQL database. Authorizations, charges, their f
 ## Install
 
 ```bash
-pnpm add tollstile @tollstile/postgres pg
+npm install tollstile @tollstile/postgres pg
 ```
 
 ## Quick start

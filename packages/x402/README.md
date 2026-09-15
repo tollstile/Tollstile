@@ -9,7 +9,7 @@ The [x402](https://github.com/x402-foundation/x402) V2 rail for Tollstile. Agent
 ## Install
 
 ```bash
-pnpm add tollstile @tollstile/x402
+npm install tollstile @tollstile/x402
 ```
 
 ## Example

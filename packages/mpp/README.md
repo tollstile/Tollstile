@@ -74,7 +74,7 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 | `quotes` | `true` | Carried in `opaque` |
 | `lookup` | `true` | See below |
 
-- **Offers**: `null` for currencies without a known minor unit, amounts finer than the minor unit (sub-cent USD), and amounts below Stripe's general minimum (USD $0.50, GBP £0.30, …).
+- **Offers**: `null` for currencies without a known minor unit, amounts finer than the minor unit (sub-cent USD), and amounts below Stripe's general minimum (USD $0.50, GBP £0.30, …). A route priced below the minimum with `mppStripe` as its only rail answers `402` with an empty `accepts`; add a rail that can serve small amounts.
 - **Idempotency key: `tollstile_mpp_<challengeId>`**, not the spec's `${challenge.id}_${spt}` and not `operation.key`. A single challenge may be presented again after its charge was released (the core retry path). A per-charge key would let that retry create a second PaymentIntent; a key containing the SPT would do the same if the payer retried with a new SPT. One key per challenge means Stripe replays the first PaymentIntent (or answers an idempotency conflict, which is treated as ambiguous) instead of charging twice. Challenges expire in minutes, well inside Stripe's 24-hour key retention. Parameters are identical across retries (metadata holds only `challenge_id` and `tollstile_authorization`), so replays succeed. A replayed PaymentIntent is judged by its status.
 - **The SPT never reaches the ledger.** It is a bearer token, so it stays in process memory between `verify` and `settle` (same request). If settlement must be retried elsewhere, it is not: the upfront flow never re-settles from reconciliation, it looks up.
 - **Lookup without creating a charge**: retrieve by PaymentIntent id when the charge has one; otherwise Stripe Search `metadata['challenge_id']:'<id>'`, re-checking the metadata of every hit. `processing`/`requires_capture` stay unknown. Refunds are found by `metadata.tollstile_charge`.
@@ -100,6 +100,7 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 | `authorization` | `single` | One transfer |
 | `refund` | `false` | Refunding would require the rail to sign transfers with a merchant key |
 | `variableAmount` | `false` | The signed amount is fixed |
+| `quotes` | `true` | Carried in `opaque` |
 | `lookup` | `true` | `eth_getTransactionReceipt` by the transaction hash |
 
 - **Challenge binding on-chain**: every request carries `methodDetails.memo = keccak256("tollstile/mpp:<realm>:<quote id>:<quote nonce>")`, and the primary transfer must be `transferWithMemo` with it. A transfer made for one challenge cannot satisfy another, so one on-chain payment cannot be presented twice under two challenge ids.
@@ -107,7 +108,7 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 - **Signed transaction in the ledger**: stored in authorization data so settlement survives a crash, and dropped by `redact` when a charge becomes terminal (the hash and `validBefore` stay for lookup). A released charge keeps it, so the same credential can be retried.
 - **Settlement**: `eth_sendRawTransactionSync`. Rebroadcasting the same bytes cannot transfer twice (one nonce). A lost answer or a refusal without a receipt stays unknown until the transaction can no longer be included (`validBefore` + margin); only then is it rejected.
 - **Residual risk (authorization flow)**: between verification and broadcast the payer can spend the nonce or the balance. The handler has then run unpaid; the charge ends `failed/completed` and `onEvent` reports `SETTLEMENT_REJECTED`. The window is the handler's duration. Balance simulation before admission is not implemented.
-- **Push mode** (`modes: ["pull", "push"]`): the payer broadcasts and sends the hash; the receipt's `Transfer`/`TransferWithMemo` logs are checked at verification, and `verify` returns `settled` with the transaction hash. Core records the charge as `settled/running` before the handler. Because this rail cannot refund, a failed handler leaves the charge `settled/failed` with a `REFUND_REJECTED` event, and reconciliation skips it (`RECONCILIATION_SKIPPED`). The credential cannot be presented again. Enable push only if you are willing to keep payments for failed handlers and handle them yourself.
+- **Push mode** (`modes: ["pull", "push"]`): the payer broadcasts and sends the hash; the receipt's `Transfer`/`TransferWithMemo` logs are checked at verification, and `verify` returns `settled` with the transaction hash. Core records the charge with flow `upfront` (money moved before the handler, even though the rail declares only `authorization` for pull mode) as `settled/running` before the handler. Because this rail cannot refund, a failed handler leaves the charge `settled/failed` with a `REFUND_REJECTED` event, and reconciliation skips it (`RECONCILIATION_SKIPPED`). The credential cannot be presented again. Enable push only if you are willing to keep payments for failed handlers and handle them yourself.
 
 ## `mppTempoSession(options)` — experimental
 

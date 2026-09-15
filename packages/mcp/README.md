@@ -58,7 +58,7 @@ paidTool(server, name, config, gate, handler, options?): RegisteredTool
 |---|---|
 | `transport` | `"mcp"` |
 | `request` | Under Streamable HTTP and SSE, a `Request` rebuilt from the URL and headers of the HTTP POST that delivered the call. The SDK exposes only those, so it has no body. `null` for stdio and in-memory transports. |
-| `mcp` | `{ tool, meta, clientCapabilities }`: `params._meta` and the client's declared capabilities, both checked to be plain JSON. A call whose `_meta` is not JSON is refused with `invalid_request` before the gate runs. |
+| `mcp` | `{ tool, arguments, meta, clientCapabilities }`: the validated tool arguments, `params._meta`, and the client's declared capabilities, all checked to be plain JSON. Dynamic prices bind their quote to `arguments`. A call whose arguments or `_meta` are not JSON is refused with `invalid_request` before the gate runs. |
 | `principal` | From `options.principal`, or `null`. |
 | `resource` | `gate.resource`, or `tool:<name>`. |
 | `requestId` | `crypto.randomUUID()` per call. |

@@ -29,9 +29,19 @@ export type QuoteSigner = {
   open(token: string, context: Context): Promise<Quote | undefined>;
 };
 
-export function createQuoteSigner(secrets: readonly string[], ttlMs: number, clock: Clock): QuoteSigner {
-  const [signingSecret] = secrets;
-  if (signingSecret === undefined) throw new TollstileError('UNREACHABLE', 'Quote signing needs at least one secret.');
+/**
+ * `ephemeral` generates a secret on first use rather than at construction: runtimes such as
+ * Cloudflare Workers forbid random values outside a request, and a module-scope `createTollstile()`
+ * must still load there.
+ */
+export function createQuoteSigner(configured: readonly string[] | 'ephemeral', ttlMs: number, clock: Clock): QuoteSigner {
+  let generated: readonly string[] | undefined;
+  const secretsNow = (): readonly [string, ...string[]] => {
+    const secrets = configured === 'ephemeral' ? (generated ??= [randomToken(32)]) : configured;
+    const [first, ...rest] = secrets;
+    if (first === undefined) throw new TollstileError('UNREACHABLE', 'Quote signing needs at least one secret.');
+    return [first, ...rest];
+  };
 
   return {
     async issue({ context, commitment, price, variable, offers }) {
@@ -48,7 +58,7 @@ export function createQuoteSigner(secrets: readonly string[], ttlMs: number, clo
         expiresAt: new Date(issuedAt.getTime() + ttlMs),
       };
       const payload = base64urlEncode(utf8(JSON.stringify(toWire(quote))));
-      const signature = base64urlEncode(await hmacSha256(signingSecret, payload));
+      const signature = base64urlEncode(await hmacSha256(secretsNow()[0], payload));
       return { quote, token: `${payload}.${signature}` };
     },
 
@@ -59,7 +69,7 @@ export function createQuoteSigner(secrets: readonly string[], ttlMs: number, clo
       if (presented === undefined) return undefined;
 
       let authentic = false;
-      for (const secret of secrets) {
+      for (const secret of secretsNow()) {
         if (constantTimeEqual(presented, await hmacSha256(secret, payload))) authentic = true;
       }
       if (!authentic) return undefined;

@@ -367,6 +367,59 @@ describe('@tollstile/express', () => {
     expect(ledger.charges().map((charge) => charge.resource)).toEqual(['GET /api/users/:id', 'POST /anything/else']);
   });
 
+  describe('dynamic prices', () => {
+    function translateApp(toll: ReturnType<typeof setup>['toll'], parser?: express.RequestHandler) {
+      const app = express();
+      if (parser !== undefined) app.use(parser);
+      app.post(
+        '/translate',
+        paid(
+          toll.price(async (context) => {
+            const { text } = (await context.request?.json()) as { text: string };
+            return `$${(text.split(' ').length / 1000).toFixed(3)}`;
+          }),
+          (req, res) => {
+            res.json({ translated: (req.body as { text: string }).text.toUpperCase() });
+          },
+        ),
+      );
+      return app;
+    }
+    const post = (url: string, body: unknown, payment?: string) =>
+      fetch(`${url}/translate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(payment === undefined ? {} : { payment }) },
+        body: JSON.stringify(body),
+      });
+
+    it('prices the parsed body and refuses a quote replayed with a different body', async () => {
+      const { toll, rail } = setup();
+      const url = await listen(translateApp(toll, express.json()));
+
+      const quoted = (await (await post(url, { text: 'hello' })).json()) as { price: string; quote: string };
+      expect(quoted.price).toBe('$0.001');
+
+      const swapped = await post(url, { text: 'one two three four five six' }, `test quote=${quoted.quote}`);
+      expect(swapped.status).toBe(402);
+      expect(await swapped.json()).toMatchObject({ reason: 'quote_mismatch' });
+      expect(rail.effects.settlements).toBe(0);
+
+      const retried = await post(url, { text: 'hello' }, `test quote=${quoted.quote}`);
+      expect(retried.status).toBe(200);
+      expect(await retried.json()).toEqual({ translated: 'HELLO' });
+    });
+
+    it('fails closed when a body-dependent price runs without a body parser', async () => {
+      const { toll, renderError, errors } = setup();
+      const app = translateApp(toll);
+      app.use(renderError);
+      const url = await listen(app);
+
+      expect((await post(url, { text: 'hello' })).status).toBe(500);
+      expect(errors[0]).toMatchObject({ code: 'CONFIG_INVALID' });
+    });
+  });
+
   it('passes the resolved principal to access policies', async () => {
     const { toll } = setup();
     const balance = memoryBalance({ acct_1: '$1' });

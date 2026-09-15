@@ -1,0 +1,21 @@
+{
+  "name": "@tollstile-examples/mcp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "agent": "tsx src/agent.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@tollstile/mcp": "workspace:^",
+    "@tollstile/x402": "workspace:^",
+    "tollstile": "workspace:^",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "4.23.13"
+  }
+}

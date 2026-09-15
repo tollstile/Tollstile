@@ -17,7 +17,7 @@ const layerImports = (forbidden) => ({
 });
 
 export default tseslint.config(
-  { ignores: ['web/**', '.claude/**', '**/dist/**', '**/node_modules/**', '**/*.config.*'] },
+  { ignores: ['web/**', '.claude/**', '**/dist/**', '**/node_modules/**', '**/*.config.*', '**/.next/**', '**/.wrangler/**', '**/next-env.d.ts'] },
   ...tseslint.configs.strictTypeChecked,
   comments.recommended,
   {
@@ -60,6 +60,11 @@ export default tseslint.config(
     // A Node CLI: it writes files and talks to the terminal.
     files: ['packages/create-tollstile/src/**/*.ts'],
     rules: { 'no-restricted-imports': 'off', 'no-console': 'off' },
+  },
+  {
+    // Example servers and agents are applications: they print to the terminal.
+    files: ['examples/*/src/**/*.ts', 'examples/*/scripts/**/*.ts'],
+    rules: { 'no-console': 'off' },
   },
   {
     files: ['packages/tollstile/src/core/**/*.ts'],

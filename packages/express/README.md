@@ -49,7 +49,7 @@ The handler is called as `handler(req, res, { payment, next })`.
 - Writes made while the response is held return `false`; `'drain'` is emitted once they are let through, so piped streams and writers that respect back-pressure resume.
 - Call `payment.fulfill()` inside the handler to mark the service as delivered earlier; a later failure then does not undo the charge.
 - The resource is `"<METHOD> <route path>"` — e.g. `GET /api/users/:id` — when the handler is on a string route path, and `"<METHOD> <pathname>"` otherwise (for example under `app.use`). Router mount paths are taken from `req.baseUrl`, so a mount path with parameters is recorded with its values; set `toll.price(amount, { resource })` there.
-- Rails read proofs from a Web `Request` built from `req`: method, the absolute URL from `req.protocol`, `req.host`, and `req.originalUrl` (both honor Express's `trust proxy` setting), and every header. The body is not included: rails read proofs from headers.
+- Rails read proofs from a Web `Request` built from `req`: method, the absolute URL from `req.protocol`, `req.host`, and `req.originalUrl` (both honor Express's `trust proxy` setting), and every header. The body is rebuilt from what Express parsed (`express.json()`, `express.text()`, `express.raw()`; objects are serialized with sorted keys), so dynamic prices can read it and quotes bind to it. If a request has a body that no parser read, any price or quote commitment that reads the body fails with `CONFIG_INVALID` instead of seeing an empty body. Fixed-price routes never read it.
 
 ## Options
 

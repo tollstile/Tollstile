@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "paths": {
+      "tollstile": ["../../packages/tollstile/src/index.ts"],
+      "@tollstile/express": ["../../packages/express/src/index.ts"],
+      "@tollstile/x402": ["../../packages/x402/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}

@@ -66,6 +66,28 @@ describe('events', () => {
   });
 });
 
+describe('ephemeral quote secret', () => {
+  it('draws no random values until the first quote, so module-scope construction loads on Workers', async () => {
+    const original = crypto.getRandomValues.bind(crypto);
+    let draws = 0;
+    crypto.getRandomValues = ((array: Parameters<Crypto['getRandomValues']>[0]) => {
+      draws += 1;
+      return original(array);
+    }) as Crypto['getRandomValues'];
+    try {
+      const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
+      const gate = toll.price('$0.01');
+      expect(draws).toBe(0);
+
+      const quoted = await call(gate);
+      expect(draws).toBeGreaterThan(0);
+      expect((await call(gate, { payment: `test quote=${String(quoted.body.quote)}` })).status).toBe(200);
+    } finally {
+      crypto.getRandomValues = original;
+    }
+  });
+});
+
 describe('mcp context', () => {
   it('reads the proof from _meta and returns the receipt as meta', async () => {
     const { toll } = setup();

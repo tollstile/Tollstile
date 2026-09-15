@@ -9,7 +9,7 @@ A Tollstile ledger in SQLite: a local file through `node:sqlite`, `better-sqlite
 ## Install
 
 ```bash
-pnpm add tollstile @tollstile/sqlite
+npm install tollstile @tollstile/sqlite
 ```
 
 ## Quick start (node:sqlite)

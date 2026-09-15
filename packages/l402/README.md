@@ -96,7 +96,7 @@ L402 defines no MCP transport. The challenge is `challenge.mcp = { style: "tolls
 ## Things to know
 
 - **Every challenge creates an invoice on your node**, including for unauthenticated requests. aperture works the same way. Rate-limit unpaid requests in front of Tollstile.
-- If invoice creation fails, the challenge throws `PROVIDER_UNAVAILABLE` and the request fails (your adapter answers 5xx) instead of offering an invoice that cannot be paid — including other rails' offers on that request.
+- If invoice creation fails, the challenge throws `PROVIDER_UNAVAILABLE`. Core leaves L402 out of that 402 instead of offering an invoice that cannot be paid; other rails' offers are unaffected. If no rail can offer, the answer is `503 payment_unavailable`.
 - The macaroon carries the quote token, so challenge headers are a few kilobytes when several rails are configured.
 - L402 uses the `Authorization` header. Routes that also authenticate callers with `Authorization` cannot use this rail on the same request.
 - **On dynamic-price routes, a credential works only while its quote opens** (core's `quoteTtlMs`, 5 minutes by default, and only on the quoted resource). After that the route answers `quote_required` and `lnget` pays a new invoice, leaving the old credential's remaining value unused. Sell multi-call credentials (`calls > 1`) for fixed-price routes.

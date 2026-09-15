@@ -1,5 +1,4 @@
 import { assertRailServesRoute } from './capabilities';
-import { randomToken } from './codec';
 import { TollstileError } from './errors';
 import { createGate, parsePriceInput, type Route } from './gate';
 import type { Runtime } from './lifecycle';
@@ -104,13 +103,13 @@ function validateRails(rails: readonly Rail[]): void {
   }
 }
 
-function secretsFor<Rails extends readonly Rail[]>(config: TollstileConfig<Rails>): readonly string[] {
+function secretsFor<Rails extends readonly Rail[]>(config: TollstileConfig<Rails>): readonly string[] | 'ephemeral' {
   const secrets = config.secret === undefined ? [] : typeof config.secret === 'string' ? [config.secret] : config.secret;
   if (secrets.length === 0) {
     if (config.rails.some((rail) => rail.livemode)) {
       throw new TollstileError('CONFIG_INVALID', 'Live rails need `secret` to sign quotes. Use at least 32 random characters from your secret store.');
     }
-    return [randomToken(32)];
+    return 'ephemeral';
   }
   if (secrets.some((secret) => secret.length < MIN_SECRET_LENGTH)) {
     throw new TollstileError('CONFIG_INVALID', `Quote secrets must be at least ${String(MIN_SECRET_LENGTH)} characters.`);

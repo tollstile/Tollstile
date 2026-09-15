@@ -7,7 +7,7 @@ A KYAPay payment token is a funded hold minted by the buyer with Skyfire. The ra
 ## Install
 
 ```bash
-pnpm add tollstile @tollstile/kyapay
+npm install tollstile @tollstile/kyapay
 ```
 
 ## Example
