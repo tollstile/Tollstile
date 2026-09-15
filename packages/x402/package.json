@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/x402",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "x402 payments for APIs and MCP tools: accept USDC with the exact and upto schemes, verify through a facilitator, and reconcile on-chain. A Tollstile rail.",
   "keywords": [
     "x402",

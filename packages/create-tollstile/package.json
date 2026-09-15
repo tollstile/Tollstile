@@ -1,6 +1,6 @@
 {
   "name": "create-tollstile",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create a paid API in one command: a Hono server with pay-per-call pricing, a test payment rail, and an agent that pays for it.",
   "keywords": [
     "create",

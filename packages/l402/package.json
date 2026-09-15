@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/l402",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "L402 (Lightning) payments for APIs and MCP tools: macaroon credentials paid with Lightning invoices, with LND support. A Tollstile rail.",
   "keywords": [
     "l402",

@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/express",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Express middleware to charge per API call with x402, MPP, credits, and subscriptions. Holds the response until payment settles.",
   "keywords": [
     "express",
