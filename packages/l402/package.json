@@ -1,0 +1,50 @@
+{
+  "name": "@tollstile/l402",
+  "version": "0.0.0",
+  "description": "L402 (Lightning) payments for APIs and MCP tools: macaroon credentials paid with Lightning invoices, with LND support. A Tollstile rail.",
+  "keywords": [
+    "l402",
+    "lsat",
+    "lightning",
+    "bitcoin",
+    "macaroon",
+    "lnd",
+    "agent-payments",
+    "machine-payments",
+    "api-monetization",
+    "pay-per-call",
+    "http-402"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/l402"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "tollstile": "workspace:^"
+  }
+}

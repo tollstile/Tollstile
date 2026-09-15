@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "jsx": "preserve",
+    "allowJs": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "tollstile": ["../../packages/tollstile/src/index.ts"],
+      "@tollstile/next": ["../../packages/next/src/index.ts"],
+      "@tollstile/x402": ["../../packages/x402/src/index.ts"]
+    }
+  },
+  "include": ["next-env.d.ts", "app", "lib", "scripts", "test", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

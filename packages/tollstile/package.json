@@ -1,0 +1,55 @@
+{
+  "name": "tollstile",
+  "version": "0.0.0",
+  "description": "Open-source payment middleware for APIs, MCP tools, and AI agents. Accept x402 and MPP payments with subscriptions, credits, spend limits, refunds, and a merchant-owned ledger.",
+  "keywords": [
+    "x402",
+    "mpp",
+    "http-402",
+    "agent-payments",
+    "machine-payments",
+    "ai-agents",
+    "mcp",
+    "mcp-payments",
+    "api-monetization",
+    "paid-api",
+    "pay-per-call",
+    "payment-middleware",
+    "usage-billing",
+    "micropayments",
+    "credits",
+    "subscriptions",
+    "stablecoin",
+    "typescript"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/tollstile"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

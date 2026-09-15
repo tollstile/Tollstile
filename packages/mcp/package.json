@@ -1,0 +1,52 @@
+{
+  "name": "@tollstile/mcp",
+  "version": "0.0.0",
+  "description": "Charge for MCP tools: paid tools for the MCP TypeScript SDK with x402, MPP, credits, and subscriptions. Payment challenges, receipts, and refunds handled for you.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "mcp-payments",
+    "paid-mcp-tools",
+    "x402",
+    "mpp",
+    "agent-payments",
+    "ai-agents",
+    "pay-per-call",
+    "api-monetization"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.23.0",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "tollstile": "workspace:^"
+  }
+}

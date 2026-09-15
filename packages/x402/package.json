@@ -1,0 +1,52 @@
+{
+  "name": "@tollstile/x402",
+  "version": "0.0.0",
+  "description": "x402 payments for APIs and MCP tools: accept USDC with the exact and upto schemes, verify through a facilitator, and reconcile on-chain. A Tollstile rail.",
+  "keywords": [
+    "x402",
+    "x402-server",
+    "usdc",
+    "base",
+    "stablecoin",
+    "agent-payments",
+    "machine-payments",
+    "ai-agents",
+    "mcp-payments",
+    "api-monetization",
+    "pay-per-call",
+    "http-402"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/x402"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@x402/core": "2.25.0",
+    "tollstile": "workspace:^"
+  }
+}

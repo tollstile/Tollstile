@@ -1,0 +1,48 @@
+{
+  "name": "@tollstile/sqlite",
+  "version": "0.0.0",
+  "description": "SQLite ledger for Tollstile payments: authorizations, charges, and reconciliation in your own database. Works with node:sqlite, better-sqlite3, bun:sqlite, and Cloudflare D1.",
+  "keywords": [
+    "sqlite",
+    "d1",
+    "cloudflare-d1",
+    "better-sqlite3",
+    "bun-sqlite",
+    "ledger",
+    "payments",
+    "agent-payments",
+    "reconciliation"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/sqlite"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "tollstile": "workspace:^"
+  }
+}

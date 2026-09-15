@@ -1,0 +1,22 @@
+{
+  "name": "@tollstile-examples/hono",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "agent": "tsx src/agent.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "@tollstile/hono": "workspace:^",
+    "@tollstile/x402": "workspace:^",
+    "hono": "4.13.7",
+    "tollstile": "workspace:^",
+    "@tollstile/sqlite": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "4.23.13"
+  }
+}

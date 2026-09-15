@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "paths": {
+      "tollstile": ["../../packages/tollstile/src/index.ts"],
+      "@tollstile/hono": ["../../packages/hono/src/index.ts"],
+      "@tollstile/x402": ["../../packages/x402/src/index.ts"],
+      "@tollstile/sqlite": ["../../packages/sqlite/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}

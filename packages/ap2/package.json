@@ -1,0 +1,46 @@
+{
+  "name": "@tollstile/ap2",
+  "version": "0.0.0",
+  "description": "Experimental: require AP2 user mandates, so an agent can only pay with a user-signed authorization bound to your quote. A Tollstile requirement.",
+  "keywords": [
+    "ap2",
+    "agent-payments-protocol",
+    "payment-mandate",
+    "sd-jwt",
+    "user-authorization",
+    "ai-agents",
+    "agent-payments"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/ap2"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "tollstile": "workspace:^"
+  }
+}

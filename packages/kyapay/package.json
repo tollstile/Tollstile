@@ -1,0 +1,47 @@
+{
+  "name": "@tollstile/kyapay",
+  "version": "0.0.0",
+  "description": "KYAPay payments for APIs and MCP tools: verify Skyfire pay tokens and charge per call. A Tollstile rail.",
+  "keywords": [
+    "kyapay",
+    "skyfire",
+    "agent-payments",
+    "agent-identity",
+    "ai-agents",
+    "api-monetization",
+    "pay-per-call",
+    "payment-middleware"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/kyapay"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "tollstile": "workspace:^"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "name": "@tollstile/fetch",
+  "version": "0.0.0",
+  "description": "Charge per call for Web-standard fetch handlers on Cloudflare Workers, Deno, and Bun with x402, MPP, credits, and subscriptions.",
+  "keywords": [
+    "fetch",
+    "cloudflare-workers",
+    "deno",
+    "bun",
+    "web-standard",
+    "x402",
+    "mpp",
+    "agent-payments",
+    "api-monetization",
+    "pay-per-call",
+    "payment-middleware"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/fetch"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "tollstile": "workspace:^"
+  }
+}

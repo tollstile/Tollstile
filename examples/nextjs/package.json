@@ -1,0 +1,23 @@
+{
+  "name": "@tollstile-examples/nextjs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "agent": "tsx scripts/agent.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tollstile/next": "workspace:^",
+    "@tollstile/x402": "workspace:^",
+    "next": "15.5.25",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "19.3.0",
+    "tsx": "4.23.13"
+  }
+}

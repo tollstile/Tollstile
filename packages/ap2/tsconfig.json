@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "tollstile": [
+        "../tollstile/src/index.ts"
+      ],
+      "tollstile/testing": [
+        "../tollstile/src/testing/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}

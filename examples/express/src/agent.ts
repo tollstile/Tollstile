@@ -1,0 +1,70 @@
+// An agent that meets 402 Payment Required, pays with the test rail, and gets through.
+// Start the server first (`pnpm start`), then run `pnpm agent`.
+const baseUrl = process.argv[2] ?? 'http://localhost:3000';
+
+/** The fields of Tollstile's 402 body this agent reads. */
+type Challenge = { readonly price: string; readonly quote: string; readonly error: { readonly code: string; readonly action: string } };
+
+// 1. A fixed price: 402 with a signed quote, then 200 and a receipt for paying it.
+const weather = await challengeOf('GET /weather', await fetch(`${baseUrl}/weather`));
+await show(
+  'GET /weather  Payment: test quote=…',
+  await fetch(`${baseUrl}/weather`, { headers: { payment: `test quote=${weather.quote}` } }),
+);
+
+// 2. A retry after a lost response: the same payment and Idempotency-Key is answered 409 already_paid,
+// so the agent never pays twice for one request.
+const retried = await challengeOf('GET /weather', await fetch(`${baseUrl}/weather`));
+const once = { payment: `test quote=${retried.quote}`, 'idempotency-key': crypto.randomUUID() };
+await show('GET /weather  Payment + Idempotency-Key', await fetch(`${baseUrl}/weather`, { headers: once }));
+await show('GET /weather  the same retry', await fetch(`${baseUrl}/weather`, { headers: once }));
+
+// 3. A price computed from the body. The quote pays only for the body it priced.
+const text = 'The weather in Tokyo is clear all week';
+const translation = await challengeOf('POST /translate', await fetch(`${baseUrl}/translate`, { method: 'POST', body: text }));
+await challengeOf(
+  'POST /translate  Payment: test quote=…  (a longer body)',
+  await fetch(`${baseUrl}/translate`, {
+    method: 'POST',
+    body: `${text}, and here is a much longer text to translate`,
+    headers: { payment: `test quote=${translation.quote}` },
+  }),
+);
+await show(
+  'POST /translate  Payment: test quote=…  (the same body)',
+  await fetch(`${baseUrl}/translate`, { method: 'POST', body: text, headers: { payment: `test quote=${translation.quote}` } }),
+);
+
+// 4. A customer with an API key pays from prepaid credits: no 402, and no rail receipt.
+await show('GET /forecast  X-API-Key: demo-key', await fetch(`${baseUrl}/forecast`, { headers: { 'x-api-key': 'demo-key' } }));
+
+/** Prints a 402 and returns the challenge it carries. */
+async function challengeOf(label: string, response: Response): Promise<Challenge> {
+  const body: unknown = await response.json();
+  if (response.status !== 402 || !isChallenge(body)) {
+    throw new Error(`${label}: expected a 402 with a quote, got ${response.status} ${JSON.stringify(body)}`);
+  }
+  console.log(`${label} → 402 ${body.error.code} (${body.error.action}), price ${body.price}`);
+  return body;
+}
+
+async function show(label: string, response: Response): Promise<void> {
+  console.log(`${label} → ${response.status}, receipt ${response.headers.get('payment-receipt') ?? 'none'}`);
+  console.log(`  ${await response.text()}`);
+}
+
+function isChallenge(body: unknown): body is Challenge {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'price' in body &&
+    typeof body.price === 'string' &&
+    'quote' in body &&
+    typeof body.quote === 'string' &&
+    'error' in body &&
+    typeof body.error === 'object' &&
+    body.error !== null &&
+    'code' in body.error &&
+    typeof body.error.code === 'string'
+  );
+}
