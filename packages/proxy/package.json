@@ -1,0 +1,61 @@
+{
+  "name": "@tollstile/proxy",
+  "version": "0.1.0",
+  "description": "Put a paid gateway in front of any HTTP API or MCP server \u2014 FastAPI, FastMCP, Rails, Go \u2014 and charge per route or per tool with x402, MPP, credits, and subscriptions. No code changes in the upstream service.",
+  "keywords": [
+    "proxy",
+    "gateway",
+    "api-gateway",
+    "reverse-proxy",
+    "fastapi",
+    "fastmcp",
+    "python",
+    "mcp",
+    "mcp-payments",
+    "x402",
+    "mpp",
+    "agent-payments",
+    "api-monetization",
+    "pay-per-call",
+    "http-402"
+  ],
+  "homepage": "https://tollstile.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollstile/tollstile.git",
+    "directory": "packages/proxy"
+  },
+  "bugs": {
+    "url": "https://github.com/tollstile/tollstile/issues"
+  },
+  "author": "Paradigm AI Inc.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "tollstile-proxy": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "tollstile": "workspace:^"
+  }
+}

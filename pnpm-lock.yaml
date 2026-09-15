@@ -177,6 +177,22 @@ importers:
         specifier: 4.23.13
         version: 4.23.13
 
+  examples/proxy-python:
+    dependencies:
+      '@tollstile/proxy':
+        specifier: workspace:^
+        version: link:../../packages/proxy
+      tollstile:
+        specifier: workspace:^
+        version: link:../../packages/tollstile
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.2
+      tsx:
+        specifier: 4.23.13
+        version: 4.23.13
+
   packages/ap2:
     devDependencies:
       tollstile:
@@ -257,6 +273,12 @@ importers:
       '@electric-sql/pglite':
         specifier: 0.5.8
         version: 0.5.8
+      tollstile:
+        specifier: workspace:^
+        version: link:../tollstile
+
+  packages/proxy:
+    devDependencies:
       tollstile:
         specifier: workspace:^
         version: link:../tollstile

@@ -58,6 +58,11 @@ export default tseslint.config(
     rules: { 'no-restricted-imports': 'off' },
   },
   {
+    // The proxy's Node server and CLI run on Node by design; the proxy itself stays Web-standard.
+    files: ['packages/proxy/src/node.ts', 'packages/proxy/src/cli.ts'],
+    rules: { 'no-restricted-imports': 'off', 'no-console': 'off' },
+  },
+  {
     // A Node CLI: it writes files and talks to the terminal.
     files: ['packages/create-tollstile/src/**/*.ts'],
     rules: { 'no-restricted-imports': 'off', 'no-console': 'off' },
