@@ -1,11 +1,33 @@
-import { createTollstile, memoryBalance, memoryLedger, testRail } from 'tollstile';
+import { DatabaseSync } from 'node:sqlite';
+import { sqliteLedger, sqliteSchema } from '@tollstile/sqlite';
+import { createTollstile, memoryBalance, testRail } from 'tollstile';
 
-// The test rail runs the whole payment lifecycle in this process: no wallet, network, or account.
-// A client pays by sending `Payment: test quote=<quote>` with the quote from the 402.
+// The example keeps the test rail easy to run while persisting payment state in SQLite.
 export const toll = createTollstile({
   rails: [testRail()],
-  ledger: memoryLedger(),
+  ledger: persistentLedger(),
 });
+
+function persistentLedger() {
+  const db = new DatabaseSync(process.env.TOLLSTILE_DB ?? './tollstile.db');
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
+  db.exec(sqliteSchema);
+  const all = (sql: string, params: readonly (string | number | null)[]) => db.prepare(sql).all(...params) as readonly Record<string, unknown>[];
+  return sqliteLedger({
+    execute: all,
+    transaction: (statements) => {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const results = statements.map((statement) => all(statement.sql, statement.params));
+        db.exec('COMMIT');
+        return results;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+  });
+}
 
 /** Prepaid credits by customer account. In memory here; back it with your database in production. */
 export const creditBalance = memoryBalance({ acct_demo: '$0.10' });

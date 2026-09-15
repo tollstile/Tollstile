@@ -85,6 +85,9 @@ importers:
       '@tollstile/hono':
         specifier: workspace:^
         version: link:../../packages/hono
+      '@tollstile/sqlite':
+        specifier: workspace:^
+        version: link:../../packages/sqlite
       '@tollstile/x402':
         specifier: workspace:^
         version: link:../../packages/x402

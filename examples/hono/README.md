@@ -1,6 +1,6 @@
 # Hono example
 
-A paid API on [Hono](https://hono.dev) and Node with `@tollstile/hono`. It runs on the test rail and an in-memory ledger: no wallet, account, or network.
+A paid API on [Hono](https://hono.dev) and Node with `@tollstile/hono`. It runs on the test rail with a local SQLite ledger; no wallet, account, or network is needed for the default flow.
 
 | Route | Price | What it shows |
 |---|---|---|
@@ -64,12 +64,12 @@ The smoke test runs the same flows in process, including credits running out: `p
 ## Notes
 
 - On a dynamically priced route, put `tollstile()` before any middleware that reads the body, such as a validator. Tollstile prices from a copy of the unread body and refuses a request whose body was already consumed.
-- The ledger and the credit balance live in memory: restarting the server forgets every charge and resets credits.
+- The ledger is stored in `./tollstile.db` by default (override with `TOLLSTILE_DB`), so charges survive a restart. The credit balance remains in memory and resets when the process restarts.
 - Inside this repository, `tsconfig.json` maps `tollstile` and `@tollstile/*` to their sources, and `tsx` follows the mapping, so nothing needs building. In your own project, install the packages and delete `paths`.
 
 ## Use real payments
 
-> **Live rails have not yet been verified against real providers.** `@tollstile/x402` is tested against a fake facilitator, a fake chain, and the x402 reference library only. Nothing in these examples has settled a real payment. Run the live checks below on a testnet before trusting it with money.
+> **Live verification status.** The x402 `exact` flow has been verified on Base Sepolia with x402.org, including handler failure and retry, replay protection, and a restart with a persistent SQLite ledger. `upto`, reconciliation after an ambiguous settlement, and production providers remain to be verified.
 
 To accept USDC on Base Sepolia through x402:
 

@@ -12,7 +12,8 @@
     "@tollstile/hono": "workspace:^",
     "@tollstile/x402": "workspace:^",
     "hono": "4.13.7",
-    "tollstile": "workspace:^"
+    "tollstile": "workspace:^",
+    "@tollstile/sqlite": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

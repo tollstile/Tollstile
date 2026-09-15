@@ -116,7 +116,7 @@ The authorization's `data` holds the payer's signed payload, because settlement 
 - `test/conformance.test.ts` round-trips headers through `@x402/core` 2.25.0 (`decodePaymentRequiredHeader`, `encodePaymentSignatureHeader`, `decodePaymentResponseHeader`, V2 schema guards) and checks that the reference `x402ResourceServer.findMatchingRequirements` accepts what this rail advertises.
 - ABI selectors and event topics were computed with keccak-256 and cross-checked against known selectors (`balanceOf`, `transferWithAuthorization`, `Transfer`); calldata layouts follow `x402UptoPermit2Proxy.sol` at x402-foundation/x402 `3a6605e`.
 
-**Not verified against a real facilitator or chain.** In particular: signature acceptance by x402.org, real facilitator error bodies, `finalized` tag behaviour of your RPC provider, log range limits, and upto settlement through `settleWithPermit` or sponsored approvals.
+**Live verification status.** The `exact` flow has been verified on Base Sepolia with x402.org, including a successful USDC transfer, replay rejection, handler failure followed by retry, and persistence across a process restart with the SQLite ledger. `upto`, reconciliation after an ambiguous settlement, and production providers still require separate verification.
 
 ### Verify live on Base Sepolia with the x402.org facilitator
 
