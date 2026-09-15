@@ -1,6 +1,11 @@
 <p align="center">
+  <img src="https://tollstile.com/icon.svg" alt="Tollstile" width="96" /><br />
   <strong>Tollstile</strong><br />
   Open-source payment middleware for APIs, MCP tools, and AI agents.
+</p>
+
+<p align="center">
+  <a href="https://tollstile.com/docs/roadmap"><img src="https://img.shields.io/badge/status-Early%20Access-orange" alt="Early Access" /></a>
 </p>
 
 <p align="center">
@@ -31,7 +36,7 @@ curl -i localhost:3000/weather                      # 402 Payment Required + sig
 curl -i -H "Payment: test" localhost:3000/weather   # 200 OK + receipt
 ```
 
-> **Pre-release, not on npm yet.** Every package is implemented and tested against fakes, published test vectors, and reference libraries. No rail has been verified against a live provider yet; each rail's README lists the exact steps. AP2 and the MPP Tempo session intent are experimental.
+> **Early Access.** Tollstile is available for public evaluation. x402 exact and MPP Stripe have been verified with testnet/test-mode providers, including retries, refunds, and reconciliation. KYAPay, x402 `upto`, AP2, and the MPP Tempo session intent remain experimental or require additional provider access. Packages are not on npm yet.
 
 ## Prompt your coding agent
 
@@ -62,7 +67,7 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 | [`tollstile`](./packages/tollstile) | Core, policies, requirements, test rail, memory ledger | Tested |
 | [`@tollstile/hono`](./packages/hono) · [`express`](./packages/express) · [`next`](./packages/next) · [`fetch`](./packages/fetch) | HTTP adapters | Tested |
 | [`@tollstile/mcp`](./packages/mcp) | Paid MCP tools | Tested with the MCP SDK |
-| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | Tested against fakes; not yet verified live |
+| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | x402 exact and MPP Stripe verified in test environments; others experimental |
 | [`@tollstile/postgres`](./packages/postgres) · [`sqlite`](./packages/sqlite) | Ledgers | Shared conformance suite |
 | [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
 | [`create-tollstile`](./packages/create-tollstile) | Project generator | Tested |
