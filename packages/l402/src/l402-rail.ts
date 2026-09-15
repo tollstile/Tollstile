@@ -117,12 +117,17 @@ export function l402(options: L402Options): L402Rail {
       return { rail: 'l402', asset, amount: amountMsat.toString(), basis: 'rate', details: { calls: Number(calls), value: formatMoney(value) } };
     },
 
-    async challenge(quote, quoteToken, offer) {
+    async challenge(quote, quoteToken, offer, _context, operation) {
       const now = clock.now();
       const amountMsat = BigInt(offer.amount);
       // Paying after the quote expires is still honored on fixed-price routes, but the invoice should not outlive it.
       const expirySeconds = Math.max(1, Math.floor((quote.expiresAt.getTime() - now.getTime()) / 1000));
-      const invoice = await options.invoices.createInvoice(amountMsat, MEMO, expirySeconds, AbortSignal.timeout(invoiceTimeoutMs));
+      const invoice = await options.invoices.createInvoice({
+        amountMsat,
+        memo: MEMO,
+        expirySeconds,
+        signal: AbortSignal.any([operation.signal, AbortSignal.timeout(invoiceTimeoutMs)]),
+      });
 
       const described = describeInvoice(invoice.paymentRequest);
       if (described?.network !== options.network) {

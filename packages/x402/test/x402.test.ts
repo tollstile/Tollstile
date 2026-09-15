@@ -1,6 +1,7 @@
 import { upTo, type JsonObject } from 'tollstile';
 import { mcpContext } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
+import type { X402Data } from '../src/index';
 import { FACILITATOR_URL, RPC_URL, USDC } from './fake-network';
 import { call, challenge, decodeHeader, FACILITATOR_ADDRESS, pay, PAY_TO, PAYER, setup, sign } from './helpers';
 
@@ -212,6 +213,8 @@ describe('exact', () => {
     network.simulate(mode);
 
     const result = await call(gate, { payment });
+    expect(result).toMatchObject({ status: 402, handlerRuns: 1, settlement: 'rejected', body: { reason: 'settlement_rejected' } });
+    expect(result.headers.get('payment-required')).not.toBeNull();
     expect(result.headers.get('payment-response')).toBeNull();
     expect(charges()).toEqual(['failed/completed']);
     expect(errors()[0]).toMatchObject({ code: 'SETTLEMENT_REJECTED' });
@@ -235,7 +238,7 @@ describe('reconciliation', () => {
     const context = setup();
     const result = await settleWith(context, 'settle-pending-after-effect');
 
-    expect(result.status).toBe(200);
+    expect(result).toMatchObject({ status: 200, settlement: 'unknown' });
     expect(result.headers.get('payment-response')).toBeNull();
     expect(context.charges()).toEqual(['unknown/completed']);
     expect(context.errors()[0]).toMatchObject({ code: 'PROVIDER_TIMEOUT' });
@@ -306,6 +309,75 @@ describe('reconciliation', () => {
     await context.toll.reconcile({ olderThanMs: 1_000 });
     expect(context.charges()).toEqual(['settled/completed']);
     expect(context.network.settlements).toBe(1);
+  });
+});
+
+describe('redaction', () => {
+  const signature = `0x${'ab'.repeat(65)}`;
+  const enter = async (context: ReturnType<typeof setup>) => {
+    const gate = context.toll.price('$0.01');
+    const { paymentRequired } = await challenge(gate);
+    const [accepted] = paymentRequired.accepts;
+    if (accepted === undefined) throw new Error('expected an offer');
+    const headers = { 'payment-signature': btoa(JSON.stringify(sign(accepted, context.clock.now()))) };
+    const { httpContext } = await import('tollstile/testing');
+    const entry = await gate.enter(httpContext(new Request('http://localhost/weather', { headers })));
+    if (entry.kind !== 'admitted') throw new Error('expected admission');
+    return entry.pass;
+  };
+
+  it('keeps the signed payload until the charge is final, then drops it and keeps what lookup needs', async () => {
+    const context = setup();
+    const pass = await enter(context);
+    expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).toContain(signature);
+
+    expect((await pass.complete('succeeded')).settlement).toBe('settled');
+    const [authorization] = context.ledger.authorizations();
+    const [charge] = context.ledger.charges();
+    if (authorization === undefined || charge === undefined) throw new Error('expected a settled charge');
+    expect(JSON.stringify(authorization.data)).not.toContain(signature);
+    expect(authorization.data).toMatchObject({ paymentPayload: null, paymentRequirements: null, payer: PAYER, nonce: `0x${'1'.padStart(64, '0')}` });
+
+    context.clock.advance(10_000);
+    const lookup = await context.rail.lookup({ ...authorization, data: authorization.data as X402Data }, charge, { key: 'k', signal: new AbortController().signal });
+    expect(lookup).toMatchObject({ status: 'settled', reference: charge.settlement?.reference });
+  });
+
+  it('keeps the signed payload while the outcome is unknown, and drops it once reconciliation resolved it', async () => {
+    const context = setup();
+    const pass = await enter(context);
+    context.network.simulate('settle-pending-after-effect');
+    expect((await pass.complete('succeeded')).settlement).toBe('unknown');
+    expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).toContain(signature);
+
+    context.network.simulate('ok');
+    context.clock.advance(60_000);
+    await context.toll.reconcile({ olderThanMs: 1_000 });
+    expect(context.charges()).toEqual(['settled/completed']);
+    expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).not.toContain(signature);
+  });
+
+  it('keeps the signed payload after a release so the payment can be retried, then drops it once the retry settled', async () => {
+    const context = setup();
+    const failed = await enter(context);
+    expect((await failed.complete('failed')).settlement).toBe('none');
+    expect(context.charges()).toEqual(['released/failed']);
+    expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).toContain(signature);
+
+    const retry = await enter(context);
+    expect((await retry.complete('succeeded')).settlement).toBe('settled');
+    expect(context.charges()).toEqual(['released/failed', 'settled/completed']);
+    expect(context.ledger.authorizations()).toHaveLength(1);
+    expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).not.toContain(signature);
+    expect(context.network.settlements).toBe(1);
+  });
+
+  it('drops the signed payload when settlement was rejected', async () => {
+    const context = setup();
+    const pass = await enter(context);
+    context.network.simulate('settle-rejected');
+    expect((await pass.complete('succeeded')).denial?.body).toMatchObject({ reason: 'settlement_rejected' });
+    expect(JSON.stringify(context.ledger.authorizations()[0]?.data)).not.toContain(signature);
   });
 });
 
@@ -423,7 +495,8 @@ describe('mcp', () => {
     const accepted = mcp.paymentRequired.accepts[0] as unknown as Parameters<typeof sign>[0];
     const entry = await gate.enter(mcpContext('generate_image', { 'x402/payment': sign(accepted, clock.now()) }));
     if (entry.kind !== 'admitted') throw new Error('expected admission');
-    const receipt = await entry.pass.complete('succeeded');
+    const { settlement, receipt } = await entry.pass.complete('succeeded');
+    expect(settlement).toBe('settled');
 
     expect(receipt.headers).toEqual([]);
     expect(receipt.meta['x402/payment-response']).toMatchObject({ success: true, network: 'eip155:84532', payer: PAYER, amount: '10000' });

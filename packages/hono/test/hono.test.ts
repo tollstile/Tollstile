@@ -57,6 +57,17 @@ describe('@tollstile/hono', () => {
     expect(ledger.charges().map((charge) => charge.payment)).toEqual(['released', 'released']);
   });
 
+  it('replaces the output with a fresh 402 when settlement is rejected', async () => {
+    const { app, rail, runs } = setup();
+    rail.simulate({ settle: 'reject' });
+    const response = await app.request('/weather', { headers: { payment: 'test proof=r1' } });
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ reason: 'settlement_rejected' });
+    expect(response.headers.get('payment-receipt')).toBeNull();
+    expect(runs()).toBe(1);
+  });
+
   it('passes the resolved principal to access policies', async () => {
     const { toll } = setup();
     const balance = memoryBalance({ acct_1: '$1' });

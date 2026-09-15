@@ -1,14 +1,16 @@
-import { TollstileError, type Clock, type Ledger } from 'tollstile';
+import { formatMoney, TollstileError, type Clock, type Ledger, type Money } from 'tollstile';
 import {
   AUTHORIZATION_COLUMNS,
   CHARGE_COLUMNS,
   inconsistent,
+  isStorable,
   microsParam,
   parseAuthorization,
   parseCharge,
   parseSpend,
   parseStatus,
   type SqliteRow,
+  unstorable,
 } from './rows';
 import { DEFAULT_TABLE_PREFIX, tableNames } from './schema';
 import { raw, sql, type SqliteStatement, type SqliteValue } from './statement';
@@ -32,7 +34,7 @@ export type SqliteLedgerOptions = {
   readonly clock?: Clock;
 };
 
-const CREATE_STATUSES = ['created', 'exists', 'missing', 'expired', 'busy', 'insufficient'] as const;
+const CREATE_STATUSES = ['created', 'exists', 'missing', 'expired', 'invalid_amount', 'currency_mismatch', 'busy', 'insufficient'] as const;
 
 /**
  * A ledger in SQLite: node:sqlite, better-sqlite3, bun:sqlite, or Cloudflare D1, through the
@@ -109,7 +111,9 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
     },
 
     async createCharge(input) {
-      const amount = sql`CAST(${microsParam(input.amount)} AS INTEGER)`;
+      const storable = isStorable(input.amount);
+      // An unstorable amount is bound as 0 so the statements stay valid; the status refuses it before anything is written.
+      const amount = sql`CAST(${storable ? microsParam(input.amount) : '0'} AS INTEGER)`;
       const at = input.at.getTime();
       // Evaluated against the state before this transaction writes anything; memoryLedger's checks, in its order.
       const status = sql`
@@ -117,6 +121,9 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
           WHEN EXISTS (SELECT 1 FROM ${charges} WHERE id = ${input.id}) THEN 'exists'
           WHEN a.id IS NULL THEN 'missing'
           WHEN a.expires_at IS NOT NULL AND ${at} >= a.expires_at THEN 'expired'
+          WHEN ${storable ? 0 : 1} THEN 'invalid_amount'
+          WHEN COALESCE(a.limit_currency, CASE WHEN a.reserved_micros <> 0 THEN a.reserved_currency WHEN a.consumed_micros <> 0 THEN a.consumed_currency END)
+            <> ${input.amount.currency} THEN 'currency_mismatch'
           WHEN a.kind = 'single' AND EXISTS (
             SELECT 1 FROM ${charges} WHERE authorization_id = a.id AND payment <> 'released'
           ) THEN 'busy'
@@ -155,6 +162,14 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
       const charge = row(4);
       const authorization = row(5);
       switch (result) {
+        case 'invalid_amount':
+          throw unstorable(input.amount);
+        case 'currency_mismatch': {
+          if (authorization === undefined) throw inconsistent(`Authorization ${input.authorizationId} could not be read back.`);
+          const { limit, reserved, consumed } = parseAuthorization(authorization);
+          const held = limit ?? (reserved.micros !== 0n ? reserved : consumed);
+          throw currencyMismatch(`Authorization ${input.authorizationId} is in ${held.currency}`, input.amount);
+        }
         case 'created':
           if (charge === undefined || authorization === undefined) throw inconsistent(`Charge ${input.id} was created but could not be read back.`);
           return { status: result, charge: parseCharge(charge), authorization: parseAuthorization(authorization) };
@@ -171,7 +186,9 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
 
     async transitionCharge(id, from, to, at, patch = {}) {
       const time = at.getTime();
-      const amount = patch.amount === undefined ? raw('c.amount_micros') : sql`CAST(${microsParam(patch.amount)} AS INTEGER)`;
+      const storable = patch.amount === undefined || isStorable(patch.amount);
+      const amount =
+        patch.amount === undefined ? raw('c.amount_micros') : sql`CAST(${storable ? microsParam(patch.amount) : '0'} AS INTEGER)`;
       const pending = patch.pending === undefined ? raw('c.pending') : sql`${patch.pending}`;
       const settlementReference = patch.settlement === undefined ? raw('c.settlement_reference') : sql`${patch.settlement.reference}`;
       const settlementDetails = patch.settlement === undefined ? raw('c.settlement_details') : sql`${JSON.stringify(patch.settlement.details)}`;
@@ -180,7 +197,7 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
       // one changes the columns it reads, so all of them see the charge as it was before.
       const matches = sql`c.id = ${id} AND c.payment = ${from.payment} AND c.fulfillment = ${from.fulfillment}
         AND EXISTS (SELECT 1 FROM ${authorizations} WHERE id = c.authorization_id)
-        ${patch.amount === undefined ? raw('') : sql`AND c.currency = ${patch.amount.currency}`}`;
+        ${patch.amount === undefined ? raw('') : sql`AND c.currency = ${patch.amount.currency} AND ${storable ? 1 : 0}`}`;
       const toPayment = sql`${to.payment}`;
 
       const row = await transaction([
@@ -217,13 +234,16 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
         if (charge === undefined || authorization === undefined) throw inconsistent(`Charge ${id} moved but could not be read back.`);
         return { status: 'moved', charge, authorization: parseAuthorization(authorization) };
       }
-      if (charge?.payment === from.payment && charge.fulfillment === from.fulfillment && patch.amount !== undefined && patch.amount.currency !== charge.amount.currency) {
-        throw new TollstileError(
-          'CURRENCY_MISMATCH',
-          `Charge ${id} is in ${charge.amount.currency} and cannot be charged in ${patch.amount.currency}. Tollstile never converts currencies.`,
-        );
+      // The guards on the patched amount are the only way a matching charge is left unmoved.
+      if (charge?.payment === from.payment && charge.fulfillment === from.fulfillment && patch.amount !== undefined) {
+        if (!storable) throw unstorable(patch.amount);
+        if (patch.amount.currency !== charge.amount.currency) throw currencyMismatch(`Charge ${id} is in ${charge.amount.currency}`, patch.amount);
       }
       return { status: 'conflict', charge };
+    },
+
+    async replaceAuthorizationData(id, data, at) {
+      await execute(sql`UPDATE ${authorizations} SET data = ${JSON.stringify(data)}, updated_at = ${at.getTime()} WHERE id = ${id}`);
     },
 
     async getAuthorization(id) {
@@ -268,4 +288,8 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
       return rows.length === 1 ? 'claimed' : 'exists';
     },
   };
+}
+
+function currencyMismatch(holder: string, amount: Money): TollstileError {
+  return new TollstileError('CURRENCY_MISMATCH', `${holder}; cannot record ${formatMoney(amount)}. Tollstile never converts currencies.`);
 }

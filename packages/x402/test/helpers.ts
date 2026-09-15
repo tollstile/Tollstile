@@ -1,5 +1,6 @@
 import {
   createTollstile,
+  type Completion,
   memoryLedger,
   toResponse,
   type Gate,
@@ -22,6 +23,8 @@ export type Result = {
   readonly body: Record<string, unknown>;
   readonly headers: Headers;
   readonly handlerRuns: number;
+  /** `null` when the request was not admitted. */
+  readonly settlement: Completion['settlement'] | null;
 };
 
 /** `undefined` removes a default option. */
@@ -68,14 +71,18 @@ export async function call<Rails extends readonly Rail[]>(
 
   if (entry.kind === 'denied') {
     const response = toResponse(entry.denial);
-    return { status: response.status, body: (await response.json()) as Record<string, unknown>, headers: response.headers, handlerRuns: 0 };
+    return { status: response.status, body: (await response.json()) as Record<string, unknown>, headers: response.headers, handlerRuns: 0, settlement: null };
   }
 
   const outcome = options.handler === undefined ? 'succeeded' : await options.handler(entry.pass.payment);
-  const receipt = await entry.pass.complete(outcome);
+  const { settlement, receipt, denial } = await entry.pass.complete(outcome);
+  if (denial !== null) {
+    const response = toResponse(denial);
+    return { status: response.status, body: (await response.json()) as Record<string, unknown>, headers: response.headers, handlerRuns: 1, settlement };
+  }
   const responseHeaders = new Headers();
   for (const [name, value] of receipt.headers) responseHeaders.append(name, value);
-  return { status: outcome === 'succeeded' ? 200 : 500, body: { meta: receipt.meta }, headers: responseHeaders, handlerRuns: 1 };
+  return { status: outcome === 'succeeded' ? 200 : 500, body: { meta: receipt.meta }, headers: responseHeaders, handlerRuns: 1, settlement };
 }
 
 export type PaymentRequired = {

@@ -150,6 +150,11 @@ export function x402(options: X402Options): X402Rail {
 
     async settle(authorization, charge, operation) {
       const { data } = authorization;
+      // Redacted evidence cannot be settled. Rejecting records the charge as failed instead of
+      // leaving it to reconciliation, which could never settle it either.
+      if (data.paymentPayload === null || data.paymentRequirements === null) {
+        return { status: 'rejected', reason: 'payment_evidence_redacted' };
+      }
       const amount = settledUnits(data, charge).toString();
       const response = await facilitator.settle(
         { x402Version: 2, paymentPayload: data.paymentPayload, paymentRequirements: { ...data.paymentRequirements, amount } },
@@ -176,6 +181,11 @@ export function x402(options: X402Options): X402Rail {
 
     lookup(authorization, charge, operation) {
       return lookupSettlement(chain, authorization.data, charge, operation.signal);
+    },
+
+    // The signature is only needed to settle; lookup works from the nonce, payer, and deadline.
+    redact(data) {
+      return { ...data, paymentPayload: null, paymentRequirements: null };
     },
 
     receipt(authorization, charge, context) {

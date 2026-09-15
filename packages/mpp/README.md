@@ -104,9 +104,10 @@ app.get("/report", tollstile(toll.price("$1.00")), (c) => c.json({ ok: true }));
 
 - **Challenge binding on-chain**: every request carries `methodDetails.memo = keccak256("tollstile/mpp:<realm>:<quote id>:<quote nonce>")`, and the primary transfer must be `transferWithMemo` with it. A transfer made for one challenge cannot satisfy another, so one on-chain payment cannot be presented twice under two challenge ids.
 - **Pull verification (offline)**: strict RLP decode of the `0x76` envelope, secp256k1 sender recovery (low-s), chain id, `validBefore` present, in the future and not after the challenge `expires`, `validAfter` not in the future, and the calls must be exactly the required transfers on the token (primary with memo, plus splits). Refused as local policy: fee-payer sponsorship (`feePayer` is never offered), key authorizations, authorization lists, non-secp256k1 signatures, and extra calls.
+- **Signed transaction in the ledger**: stored in authorization data so settlement survives a crash, and dropped by `redact` when a charge becomes terminal (the hash and `validBefore` stay for lookup). A released charge keeps it, so the same credential can be retried.
 - **Settlement**: `eth_sendRawTransactionSync`. Rebroadcasting the same bytes cannot transfer twice (one nonce). A lost answer or a refusal without a receipt stays unknown until the transaction can no longer be included (`validBefore` + margin); only then is it rejected.
 - **Residual risk (authorization flow)**: between verification and broadcast the payer can spend the nonce or the balance. The handler has then run unpaid; the charge ends `failed/completed` and `onEvent` reports `SETTLEMENT_REJECTED`. The window is the handler's duration. Balance simulation before admission is not implemented.
-- **Push mode** (`modes: ["pull", "push"]`): the payer broadcasts and sends the hash; the receipt's `Transfer`/`TransferWithMemo` logs are checked at verification. The money has moved before the handler runs and this rail cannot refund. If the handler fails the charge is *released* in the ledger (the credential can be presented again until the challenge expires), but the transfer stays with you. Enable it only if that is acceptable; see "Core change needed".
+- **Push mode** (`modes: ["pull", "push"]`): the payer broadcasts and sends the hash; the receipt's `Transfer`/`TransferWithMemo` logs are checked at verification, and `verify` returns `settled` with the transaction hash. Core records the charge as `settled/running` before the handler. Because this rail cannot refund, a failed handler leaves the charge `settled/failed` with a `REFUND_REJECTED` event, and reconciliation skips it (`RECONCILIATION_SKIPPED`). The credential cannot be presented again. Enable push only if you are willing to keep payments for failed handlers and handle them yourself.
 
 ## `mppTempoSession(options)` — experimental
 
@@ -130,8 +131,7 @@ Options: `realm`, `secret`, `rpcUrl`, `chainId`, `recipient` (payee), `token`, `
 
 ## Core change needed
 
-- **Push-mode / already-paid proofs**: a capability such as `flows: ['prepaid']` (settled at verification, no refund) where a handler failure is recorded as `settled/failed` and surfaced, instead of `released`. Until then push mode is opt-in with the caveat above.
-- **Sessions**: `NewCharge.proof` (per-request proof data persisted with the charge and passed to `settle`) and read access to the existing authorization in `verify`, as described above.
+- **Sessions** (deferred past v0.1): `NewCharge.proof` (per-request proof data persisted with the charge and passed to `settle`) and read access to the existing authorization in `verify`, as described above.
 
 ## Verification status
 

@@ -47,7 +47,7 @@ curl -i -H "Authorization: L402 AgE…:<preimage hex>" localhost:3000/weather
 | Option | Default | Purpose |
 |---|---|---|
 | `network` | required | `mainnet`, `testnet`, `signet`, or `regtest`. Invoices for another network are refused. |
-| `invoices` | required | An `InvoiceProvider`: `{ createInvoice(amountMsat, memo, expirySeconds, signal), lookupInvoice(paymentHash, signal) }`. `lndRest()` is built in. |
+| `invoices` | required | An `InvoiceProvider`: `{ createInvoice({ amountMsat, memo, expirySeconds, signal }), lookupInvoice(paymentHash, signal) }`. `lndRest()` is built in. |
 | `rate` | required | `(amount: Money) => bigint \| Promise<bigint>`: millisatoshis for an amount in the price currency. Return whole satoshis if your payers' wallets need them. Returning `0n` or less makes the rail offer nothing for that price. |
 | `secret` | required | At least 32 characters. Each macaroon's root key is `HMAC-SHA256(secret, identifier)`, so no root keys are stored. Pass an array to rotate: the first mints, all verify. Removing a secret invalidates credentials already paid for. |
 | `calls` | `1` | How many calls at the challenged price one credential pays for. The invoice is for `price × calls`. |

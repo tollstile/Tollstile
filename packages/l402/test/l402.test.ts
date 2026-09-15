@@ -51,7 +51,7 @@ async function call(
     return { status: response.status, body: (await response.json()) as Record<string, unknown>, headers: response.headers, handlerRuns: 0 };
   }
   const outcome = options.handler?.() ?? 'succeeded';
-  const receipt = await entry.pass.complete(outcome);
+  const { receipt } = await entry.pass.complete(outcome);
   const responseHeaders = new Headers();
   for (const [name, value] of receipt.headers) responseHeaders.append(name, value);
   return { status: outcome === 'succeeded' ? 200 : 500, body: {}, headers: responseHeaders, handlerRuns: 1 };
@@ -97,11 +97,12 @@ describe('challenge', () => {
     expect(entry.denial.offers[0]?.challenge.mcp).toMatchObject({ style: 'tollstile', rail: 'l402', meta: L402_CREDENTIAL_META, format: 'L402 <macaroon>:<preimage>' });
   });
 
-  it('fails the challenge instead of offering an unpayable invoice when the node is down', async () => {
-    const { toll, lnd } = setup();
+  it('omits the offer instead of an unpayable invoice when the node is down, and answers 503 without another rail', async () => {
+    const { toll, lnd, events } = setup();
     lnd.setMode('down');
 
-    await expect(call(toll.price('$0.01'))).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    expect(await call(toll.price('$0.01'))).toMatchObject({ status: 503, body: { error: 'payment_unavailable' } });
+    expect(events.find((event) => event.type === 'error')).toMatchObject({ error: { code: 'PROVIDER_UNAVAILABLE' } });
   });
 
   it('refuses an invoice from another network', async () => {
@@ -206,7 +207,7 @@ describe('paying and consuming a credential', () => {
 
     const entry = await context.toll.price('$0.01').enter(mcpContext('forecast', { [L402_CREDENTIAL_META]: `L402 ${mcp.macaroon}:${preimage}` }));
     if (entry.kind !== 'admitted') throw new Error('expected admission');
-    const receipt = await entry.pass.complete('succeeded');
+    const { receipt } = await entry.pass.complete('succeeded');
 
     expect(receipt.meta[L402_RECEIPT_META]).toMatchObject({ remaining: '$0.00' });
   });

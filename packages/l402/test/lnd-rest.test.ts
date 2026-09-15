@@ -16,7 +16,7 @@ describe('lndRest', () => {
     const lnd = fakeLnd();
     const invoices = lndRest({ url: 'https://lnd.test:8080/', macaroon: LND_MACAROON_HEX, fetch: lnd.fetch });
 
-    const invoice = await invoices.createInvoice(21_000n, 'L402', 300, signal());
+    const invoice = await invoices.createInvoice({ amountMsat: 21_000n, memo: 'L402', expirySeconds: 300, signal: signal() });
 
     expect(lnd.requests[0]).toMatchObject({
       method: 'POST',
@@ -31,7 +31,7 @@ describe('lndRest', () => {
   it('looks up open, settled, and missing invoices', async () => {
     const lnd = fakeLnd();
     const invoices = lndRest({ url: 'https://lnd.test:8080', macaroon: LND_MACAROON_HEX, fetch: lnd.fetch });
-    const invoice = await invoices.createInvoice(5_000n, 'L402', 60, signal());
+    const invoice = await invoices.createInvoice({ amountMsat: 5_000n, memo: 'L402', expirySeconds: 60, signal: signal() });
 
     expect(await invoices.lookupInvoice(invoice.paymentHash, signal())).toEqual({ status: 'open' });
     lnd.pay(invoice.paymentRequest);
@@ -47,7 +47,7 @@ describe('lndRest', () => {
 
   it('reports an unreachable node as PROVIDER_UNAVAILABLE and an aborted call as PROVIDER_TIMEOUT', async () => {
     const down = provider(() => Promise.reject(new TypeError('fetch failed')));
-    await expect(down.createInvoice(1_000n, 'L402', 60, signal())).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+    await expect(down.createInvoice({ amountMsat: 1_000n, memo: 'L402', expirySeconds: 60, signal: signal() })).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
 
     const controller = new AbortController();
     controller.abort();
@@ -56,7 +56,7 @@ describe('lndRest', () => {
 
   it('reports refusals as PROVIDER_UNAVAILABLE without leaking the macaroon', async () => {
     const error: unknown = await provider(reply(500, { code: 2, message: 'verification failed' }))
-      .createInvoice(1_000n, 'L402', 60, signal())
+      .createInvoice({ amountMsat: 1_000n, memo: 'L402', expirySeconds: 60, signal: signal() })
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(TollstileError);
@@ -70,7 +70,7 @@ describe('lndRest', () => {
     await expect(
       provider(() => Promise.resolve(new Response('<html>', { status: 200 }))).lookupInvoice('00'.repeat(32), signal()),
     ).rejects.toMatchObject({ code: 'PROVIDER_TIMEOUT' });
-    await expect(provider(reply(200, { payment_request: 'lnbc1' })).createInvoice(1_000n, 'L402', 60, signal())).rejects.toMatchObject({
+    await expect(provider(reply(200, { payment_request: 'lnbc1' })).createInvoice({ amountMsat: 1_000n, memo: 'L402', expirySeconds: 60, signal: signal() })).rejects.toMatchObject({
       code: 'PROVIDER_UNAVAILABLE',
     });
   });

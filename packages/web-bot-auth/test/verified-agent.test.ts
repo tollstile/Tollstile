@@ -7,13 +7,13 @@ import { createAgent, directoryResponse, fakeDirectory, signedRequest, type Agen
 const URL_ = 'https://api.example/data';
 const DIRECTORY = 'https://agent.example/.well-known/http-message-signatures-directory';
 
-async function setup(options: Partial<VerifiedAgentOptions> = {}, agent?: Agent) {
+async function setup(options: Partial<VerifiedAgentOptions> = {}, agent?: Agent, providerTimeoutMs?: number) {
   const signer = agent ?? (await createAgent());
   const directory = fakeDirectory([signer.jwk]);
   const clock = fakeClock();
   const ledger = memoryLedger({ clock });
   const rail = testRail();
-  const toll = createTollstile({ rails: [rail], ledger, clock, secret: 's'.repeat(32) });
+  const toll = createTollstile({ rails: [rail], ledger, clock, secret: 's'.repeat(32), ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }) });
   const gate = toll.price('$0.01', { require: [verifiedAgent({ trust: ['https://agent.example'], fetch: directory.fetch, ...options })] });
   const seconds = () => Math.floor(clock.now().getTime() / 1000);
 
@@ -23,10 +23,21 @@ async function setup(options: Partial<VerifiedAgentOptions> = {}, agent?: Agent)
   return { signer, directory, clock, ledger, rail, gate, sign, seconds };
 }
 
+function hangUntilAborted(aborted: boolean[] = []) {
+  return (_url: string, init: RequestInit | undefined) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        aborted.push(true);
+        reject(new DOMException('aborted', 'AbortError'));
+      });
+    });
+}
+
 async function enter(gate: Gate<readonly Rail[]>, request: Request) {
   const entry = await gate.enter(httpContext(request));
   if (entry.kind === 'admitted') {
-    await entry.pass.complete('succeeded');
+    const completion = await entry.pass.complete('succeeded');
+    if (completion.settlement !== 'settled') throw new Error(`expected settlement, got ${completion.settlement}`);
     return { status: 200, reason: null };
   }
   const body = (await toResponse(entry.denial).json()) as { reason?: string | null };
@@ -173,16 +184,43 @@ describe('verifiedAgent', () => {
     for (const response of cases) {
       const { gate, sign, directory } = await setup();
       directory.respond(response);
-      expect(await enter(gate, await sign())).toMatchObject({ status: 403, reason: 'directory_unavailable' });
+      expect(await enter(gate, await sign())).toEqual({ status: 403, reason: 'directory_invalid' });
     }
   });
 
-  it('reports an unreachable directory as unavailable, and retries it only after a pause', async () => {
+  it('answers 503 when the directory is unreachable, times out, or fails with 5xx', async () => {
+    const cases: readonly ((url: string, init: RequestInit | undefined) => Response | Promise<Response>)[] = [
+      () => Promise.reject(new TypeError('fetch failed')),
+      () => new Response('unavailable', { status: 503 }),
+      hangUntilAborted(),
+    ];
+    for (const respond of cases) {
+      const { gate, sign, directory, ledger } = await setup({ timeoutMs: 20 });
+      directory.respond(respond);
+      expect(await enter(gate, await sign())).toEqual({ status: 503, reason: 'directory_unavailable' });
+      expect(ledger.charges()).toHaveLength(0);
+    }
+  });
+
+  it("aborts the directory fetch when Tollstile's provider timeout elapses", async () => {
+    const aborted: boolean[] = [];
+    const { gate, sign, directory, ledger } = await setup({ timeoutMs: 60_000 }, undefined, 20);
+    directory.respond(hangUntilAborted(aborted));
+    const result = await enter(gate, await sign());
+
+    // Core answers 503 `requirement_unavailable` once its timeout fires; the fetch is cancelled with it.
+    expect(result.status).toBe(503);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(aborted).toEqual([true]);
+    expect(ledger.charges()).toHaveLength(0);
+  });
+
+  it('does not refetch a failed directory until a pause has passed', async () => {
     const { gate, sign, directory, clock, signer } = await setup();
     directory.respond(() => Promise.reject(new TypeError('fetch failed')));
 
-    expect(await enter(gate, await sign())).toMatchObject({ reason: 'directory_unavailable' });
-    expect(await enter(gate, await sign({ nonce: 'again' }))).toMatchObject({ reason: 'directory_unavailable' });
+    expect(await enter(gate, await sign())).toEqual({ status: 503, reason: 'directory_unavailable' });
+    expect(await enter(gate, await sign({ nonce: 'again' }))).toEqual({ status: 503, reason: 'directory_unavailable' });
     expect(directory.requests).toHaveLength(1);
 
     directory.respond(() => directoryResponse([signer.jwk]));
@@ -202,6 +240,17 @@ describe('verifiedAgent', () => {
     directory.respond(() => directoryResponse([]));
     expect(await enter(gate, await sign({ nonce: '3' }))).toMatchObject({ reason: 'key_not_found' });
     expect(directory.requests).toHaveLength(3);
+  });
+
+  it('stops serving a stale directory 24 hours after it expired', async () => {
+    const { gate, sign, directory, clock } = await setup({ cacheTtlMs: 60_000 });
+    expect(await enter(gate, await sign({ nonce: '1' }))).toEqual({ status: 200, reason: null });
+
+    directory.respond(() => Promise.reject(new TypeError('fetch failed')));
+    clock.advance(60_000 + 24 * 60 * 60 * 1000 - 1_000);
+    expect(await enter(gate, await sign({ nonce: '2' }))).toEqual({ status: 200, reason: null });
+    clock.advance(31_000);
+    expect(await enter(gate, await sign({ nonce: '3' }))).toEqual({ status: 503, reason: 'directory_unavailable' });
   });
 
   it('honors a shorter Cache-Control max-age, bounded below by a minute', async () => {

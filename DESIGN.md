@@ -170,12 +170,34 @@ A flow is the order in which the two axes advance. Rails declare which flows the
 | Flow | Order | Handler fails | Used by |
 |---|---|---|---|
 | `authorization` | reserve · run · complete · settle | release — nothing moved | x402 exact/upto, KYAPay, MPP session, L402 (consume), credits |
-| `upfront` | reserve · settle · run · complete | refund (requires `refund`) | MPP Stripe charge |
+| `upfront` | reserve · settle · run · complete | refund (requires `refund`) | MPP Stripe charge; payments that move during verification (MPP Tempo push) |
 | `escrow` | reserve · settle deposit · run · complete · settle final or partial refund | refund the deposit | x402 escrow, deposit-based APIs — **in the model, not implemented yet**; routes that ask for it are refused at startup |
 
 - `authorization` is preferred: the payer is charged only for work that ran.
 - A variable price (`upTo`) needs `authorization` or `escrow` and a rail with `variableAmount`.
 - Explicit fulfillment: `payment.fulfill({ amount })` marks `completed` at the point the service exists; after that, a later handler failure does not undo the charge.
+- **Paid at verification.** A rail whose payment already moved when it verified (a pushed on-chain transfer) returns `settled` from `verify`. Core records the charge as `upfront`, settled before the handler. If the handler fails, core refunds when the rail can; otherwise the charge stays `settled/failed`, an error event asks the merchant to refund outside Tollstile, and reconciliation leaves it alone.
+
+### Completion
+
+`pass.complete(outcome)` is called once after the handler and reports what happened to the money:
+
+```ts
+type Completion = {
+  settlement: "settled" | "rejected" | "unknown" | "none";
+  receipt: Receipt;          // attach when settled
+  denial: Denial | null;     // set when rejected: a fresh 402 that replaces the output
+};
+```
+
+| settlement | Adapter does |
+|---|---|
+| `settled` | serves the output with the receipt |
+| `rejected` | withholds the output and sends `denial` (reason `settlement_rejected`; without a new quote if the handler already read the body) |
+| `unknown` | serves the output without a receipt; reconciliation resolves the charge |
+| `none` | serves the handler's own result; nothing was charged |
+
+Withholding on `unknown` would be wrong: a charge that later reconciles as settled would have been paid for a service never delivered. If recording the outcome itself fails (the ledger is down), core emits an `error` event and rethrows.
 
 ---
 
@@ -215,10 +237,12 @@ Conditions every admitted request must meet — after the payer is known, before
 ```ts
 type Requirement = {
   name: string;
-  check(input: { context: Context; price: Money; payer: string; quote: Quote | null; ledger: LedgerReader; claims: Claims; now: Date }):
-    Promise<{ ok: true } | { ok: false; status: 402 | 403 | 429; reason: string }>;
+  check(input: { context: Context; price: Money; payer: string; quote: Quote | null; ledger: LedgerReader; claims: Claims; now: Date; signal: AbortSignal }):
+    Promise<{ ok: true } | { ok: false; status: 402 | 403 | 429 | 503; reason: string }>;
 };
 ```
+
+A requirement that cannot check its evidence right now (an agent key directory is down) returns `503` or throws `PROVIDER_UNAVAILABLE` / `PROVIDER_TIMEOUT`, which core answers with `503 requirement_unavailable`. A temporary outage must not look like a permanent `403`.
 
 `claims` is a single-use store for nonces and replay windows (Visa TAP nonces, AP2 KB-JWT nonces, MPP challenge ids): `claim(scope, key, expiresAt) → "claimed" | "exists"`.
 
@@ -232,7 +256,7 @@ Core never sees a framework object.
 type Context = {
   transport: "http" | "mcp";
   request: Request | null;          // Web standard; null for MCP calls without an HTTP carrier
-  mcp: { tool: string; meta: JsonObject; clientCapabilities: JsonObject } | null;
+  mcp: { tool: string; arguments: Json; meta: JsonObject; clientCapabilities: JsonObject } | null;
   principal: { id: string; [key: string]: Json } | null;   // resolved by the adapter from your auth
   resource: string;
   requestId: string;
@@ -244,31 +268,31 @@ type Context = {
 
 ## Rail contract
 
+`packages/tollstile/src/core/types.ts` is authoritative.
+
 ```ts
-type Rail = {
-  name: string;
+type Rail<Name, Data> = {
+  name: Name;
   livemode: boolean;
-  capabilities: {
-    flows: Flow[];
-    authorization: "single" | "reusable";
-    variableAmount: boolean;
-    quotes: boolean;
-    operations: { refund: boolean; partialRefund: boolean; lookup: boolean };
-  };
-  offer(price: Money, route: RouteTerms): Promise<Offer | null>;           // null: this rail cannot serve this price
-  challenge(quote: Quote, offer: Offer, context: Context): Promise<RailChallenge>;
-  verify(context: Context, operation: Operation): Promise<Verification>;   // absent | invalid | valid{proofId, payer, kind, limit, expiresAt, quoteToken, data}
-  settle(authorization: Authorization, charge: Charge, operation: Operation): Promise<SettleResult>;
-  refund(authorization: Authorization, charge: Charge, amount: bigint, operation: Operation): Promise<RefundResult>;
-  release(authorization: Authorization, charge: Charge, operation: Operation): Promise<void>;
-  lookup(authorization: Authorization, charge: Charge, operation: Operation): Promise<LookupResult>;
-  receipt(authorization: Authorization, charge: Charge, context: Context): Receipt;
+  capabilities: { flows: Flow[]; authorization: "single" | "reusable"; variableAmount: boolean; quotes: boolean; refund: boolean; partialRefund: boolean; lookup: boolean };
+  offer(terms: { resource; price: Money; variable: boolean }): Promise<Offer | null>;       // null: cannot serve this price
+  challenge(quote: Quote, quoteToken: string, offer: Offer, context: Context, operation: Operation): Promise<RailChallenge>;
+  verify(context: Context, terms: VerifyTerms, operation: Operation): Promise<Verification<Data>>;
+                     // absent | invalid{reason} | valid{proofId, payer, quote, limit, expiresAt, data, settled?}
+  settle(authorization, charge, operation): Promise<SettleResult>;
+  refund(authorization, charge, operation): Promise<RefundResult>;
+  release(authorization, charge, operation): Promise<void>;
+  lookup(authorization, charge, operation): Promise<LookupResult>;
+  receipt(authorization, charge, context): Receipt;
+  redact?(data: Data): Data;          // drop payer evidence once a single-use charge is final
 };
 ```
 
 - `lookup: false` is refused at startup: without it, an ambiguous outcome cannot be resolved without guessing.
 - `upfront` without `refund` is refused at startup.
 - Throwing `PROVIDER_UNAVAILABLE` / `PROVIDER_TIMEOUT` means "outcome unknown"; everything else is a value.
+- A provider failure in `challenge` (e.g. a Lightning node that cannot issue an invoice) omits that rail's offer from the 402. If no rail can offer, the answer is `503 payment_unavailable`.
+- `redact` runs after a charge on a single-use authorization reaches a terminal state other than `released` (a released proof may be presented again, and its evidence lapses at the proof's own expiry); what remains must still serve `lookup` and `refund`. It is not atomic with the transition: a crash in between leaves the evidence until the next redaction.
 
 ---
 
@@ -279,10 +303,13 @@ type Ledger = LedgerReader & {
   openAuthorization(input: NewAuthorization): Promise<Authorization>;          // insert or return existing
   createCharge(input: NewCharge): Promise<{ status: "created"; charge: Charge; authorization: Authorization } | { status: "insufficient" | "busy" | "inactive" }>;
   transitionCharge(id: string, from: ChargeStates, to: ChargeStates, at: Date, patch?: ChargePatch): Promise<{ status: "moved"; charge: Charge; authorization: Authorization } | { status: "conflict"; charge: Charge | undefined }>;
+  replaceAuthorizationData(id: string, data: Json, at: Date): Promise<void>;
   pendingCharges(before: Date): Promise<Charge[]>;
   claim(scope: string, key: string, expiresAt: Date): Promise<"claimed" | "exists">;
 };
 ```
+
+- An authorization holds one currency. A charge or patched amount in another currency is rejected with `CURRENCY_MISMATCH`; amounts outside `0..2^63−1` micros with `INVALID_AMOUNT`. `spendSince` totals are sorted by currency code. The memory, Postgres, and SQLite ledgers share one conformance suite.
 
 - `createCharge` atomically checks the authorization is active, has capacity (`limit − consumed − reserved ≥ amount`), and — for `single` — has no other non-released charge.
 - `transitionCharge` is compare-and-set on both axes and updates the authorization's `reserved`/`consumed` in the same transaction.
@@ -299,7 +326,7 @@ type Ledger = LedgerReader & {
 | reserved | pending / running / failed | release — the service may not exist |
 | reserved | completed | settle (authorization, escrow final) |
 | settling / unknown(settle) | any | lookup → settled, or retry / release |
-| settled | not completed (upfront, escrow) | refund — the service may not exist |
+| settled | not completed (upfront, escrow) | refund — the service may not exist; skipped and reported when the rail cannot refund |
 | refund_pending / unknown(refund) | any | lookup → refunded, or retry |
 
 Run it on a schedule: a cron trigger on Workers, an interval in Node, or `npx tollstile reconcile` with a ledger config. The window must exceed your slowest handler.
@@ -308,4 +335,4 @@ Run it on a schedule: a cron trigger on Workers, an interval in Node, or `npx to
 
 ## Events
 
-`onEvent(event)` receives typed events — `quote.issued`, `authorization.opened`, `charge.moved`, `reconcile.resolved`, `error` — with stable fields suitable for logs, metrics, and OpenTelemetry spans.
+`onEvent(event)` receives typed events — `quote.issued`, `authorization.opened`, `charge.moved`, `request.denied`, `error` — with stable fields suitable for logs, metrics, and OpenTelemetry spans.

@@ -1,4 +1,4 @@
-import { createTollstile, memoryLedger, toResponse, type Gate, type JsonObject, type Rail, type TollstileEvent } from 'tollstile';
+import { createTollstile, memoryLedger, toResponse, type Gate, type Pass, type JsonObject, type Rail, type TollstileEvent } from 'tollstile';
 import { fakeClock, httpContext, mcpContext } from 'tollstile/testing';
 
 /** A parsed `WWW-Authenticate: Payment` challenge, as a client sees it. */
@@ -30,6 +30,8 @@ export type Outcome = {
   readonly headers: Headers;
   readonly handlerRuns: number;
   readonly meta: JsonObject;
+  /** `none` when denied before the handler. */
+  readonly settlement?: Awaited<ReturnType<Pass<readonly Rail[]>['complete']>>['settlement'];
 };
 
 export function setup<R extends Rail>(rail: R, clock = fakeClock()) {
@@ -60,10 +62,22 @@ export async function get(
   }
   options.handler?.();
   const outcome = options.outcome ?? 'succeeded';
-  const receipt = await entry.pass.complete(outcome);
-  const headers_ = new Headers();
-  for (const [name, value] of receipt.headers) headers_.append(name, value);
-  return { status: outcome === 'succeeded' ? 200 : 500, body: {}, headers: headers_, handlerRuns: 1, meta: receipt.meta };
+  const completion = await entry.pass.complete(outcome);
+  if (completion.denial !== null) {
+    // Settlement was rejected after the handler: the adapter withholds the output and sends the fresh 402.
+    const response = toResponse(completion.denial);
+    return { status: response.status, body: (await response.json()) as JsonObject, headers: response.headers, handlerRuns: 1, meta: {}, settlement: completion.settlement };
+  }
+  const receiptHeaders = new Headers();
+  for (const [name, value] of completion.receipt.headers) receiptHeaders.append(name, value);
+  return {
+    status: outcome === 'succeeded' ? 200 : 500,
+    body: {},
+    headers: receiptHeaders,
+    handlerRuns: 1,
+    meta: completion.receipt.meta,
+    settlement: completion.settlement,
+  };
 }
 
 /** Drives a gate the way the MCP adapter does. */
@@ -79,8 +93,8 @@ export async function callTool(gate: Gate<readonly Rail[]>, meta: JsonObject = {
       mcp: entry.denial.offers.map((offer) => offer.challenge.mcp),
     };
   }
-  const receipt = await entry.pass.complete('succeeded');
-  return { status: 200, body: {}, headers: new Headers(), handlerRuns: 1, meta: receipt.meta, mcp: [] };
+  const completion = await entry.pass.complete('succeeded');
+  return { status: 200, body: {}, headers: new Headers(), handlerRuns: 1, meta: completion.receipt.meta, mcp: [] };
 }
 
 /** Requests without payment and returns the first challenge. */

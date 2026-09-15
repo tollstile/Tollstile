@@ -53,7 +53,7 @@ export function lndRest(options: LndRestOptions): InvoiceProvider {
   }
 
   return {
-    async createInvoice(amountMsat, memo, expirySeconds, signal) {
+    async createInvoice({ amountMsat, memo, expirySeconds, signal }) {
       const body = { value_msat: amountMsat.toString(), memo, expiry: expirySeconds.toString() };
       const response = await call('POST', '/v1/invoices', body, signal);
       if (response.status !== 200) throw rejected(origin, 'create an invoice', response);

@@ -324,6 +324,25 @@ describe('@tollstile/express', () => {
     expect(errors).toEqual([outage]);
   });
 
+  it('discards the held output and sends a fresh 402 when settlement is rejected', async () => {
+    const { toll, rail } = setup();
+    rail.simulate({ settle: 'reject' });
+    const app = express();
+    app.get(
+      '/weather',
+      paid(toll.price('$0.01'), (_req, res) => {
+        res.set('x-forecast-source', 'model').json({ forecast: 'clear' });
+      }),
+    );
+    const url = await listen(app);
+
+    const response = await fetch(`${url}/weather`, { headers: PAYMENT });
+    expect(response.status).toBe(402);
+    expect(response.headers.get('x-forecast-source')).toBeNull();
+    expect(response.headers.get('content-type')).toBe('application/json');
+    expect(await response.json()).toMatchObject({ reason: 'settlement_rejected' });
+  });
+
   it('names the resource after the route path, including the router mount path', async () => {
     const { toll, ledger } = setup();
     const app = express();

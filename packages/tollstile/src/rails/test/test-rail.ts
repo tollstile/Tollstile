@@ -3,7 +3,9 @@ import { compare, formatMoney, parseMoney } from '../../core/money';
 import type { AuthorizationKind, Context, Rail } from '../../core/types';
 
 export type Simulation = {
-  readonly verify?: 'ok' | 'unavailable';
+  /** `paid`: the payment moves during verification, like a transfer the payer pushed on-chain. */
+  readonly verify?: 'ok' | 'unavailable' | 'paid';
+  readonly challenge?: 'ok' | 'unavailable';
   readonly settle?: 'ok' | 'reject' | 'timeout-before-effect' | 'timeout-after-effect';
   readonly refund?: 'ok' | 'reject' | 'timeout-after-effect';
   readonly lookup?: 'ok' | 'unavailable';
@@ -12,9 +14,12 @@ export type Simulation = {
 export type TestRailOptions = {
   /** `single` behaves like x402 or an MPP charge; `reusable` like an L402 credential or a KYAPay token. */
   readonly authorization?: AuthorizationKind;
+  /** Set to `false` to behave like a rail that cannot refund, e.g. x402 `exact`. Defaults to `true`. */
+  readonly refund?: boolean;
 };
 
-export type TestData = { readonly proofId: string; readonly payer: string };
+/** `signature` stands in for payer evidence a real rail must keep until the charge is final, then drop. */
+export type TestData = { readonly proofId: string; readonly payer: string; readonly signature?: string };
 
 export type TestRail = Rail<'test', TestData> & {
   /** Changes how the fake provider behaves for subsequent calls. */
@@ -48,17 +53,18 @@ export function testRail(options: TestRailOptions = {}): TestRail {
   const refundedCharges = new Map<string, string>();
   const effects = { settlements: 0, refunds: 0, releases: 0, settled: [] as bigint[] };
   const kind = options.authorization ?? 'single';
+  const refund = options.refund ?? true;
 
   return {
     name: 'test',
     livemode: false,
     capabilities: {
-      flows: ['authorization', 'upfront'],
+      flows: refund ? ['authorization', 'upfront'] : ['authorization'],
       authorization: kind,
       variableAmount: true,
       quotes: true,
-      refund: true,
-      partialRefund: true,
+      refund,
+      partialRefund: refund,
       lookup: true,
     },
     effects,
@@ -78,6 +84,7 @@ export function testRail(options: TestRailOptions = {}): TestRail {
     },
 
     challenge(quote, token, offer) {
+      if (simulation.challenge === 'unavailable') return Promise.reject(unavailable('challenge'));
       const value = `test quote=${token}`;
       return Promise.resolve({
         headers: [],
@@ -106,15 +113,21 @@ export function testRail(options: TestRailOptions = {}): TestRail {
       const limit = parameters.get('limit');
       const proofId = parameters.get('proof') ?? context.requestId;
       const payer = parameters.get('payer') ?? 'test-payer';
-      return {
+      const signature = parameters.get('signature');
+      const verified = {
         status: 'valid',
         proofId,
         payer,
         quote,
         limit: limit === undefined ? price : parseMoney(limit),
         expiresAt: null,
-        data: { proofId, payer },
-      };
+        data: signature === undefined ? { proofId, payer } : { proofId, payer, signature },
+      } as const;
+      if (simulation.verify !== 'paid' || price === null) return verified;
+
+      effects.settlements += 1;
+      effects.settled.push(price.micros);
+      return { ...verified, settled: { reference: `test_push_${proofId}`, details: {} } };
     },
 
     settle(_authorization, charge) {
@@ -156,6 +169,10 @@ export function testRail(options: TestRailOptions = {}): TestRail {
       if (refund !== undefined) return Promise.resolve({ status: 'refunded', reference: refund });
       const settlement = settledCharges.get(charge.id);
       return Promise.resolve(settlement === undefined ? { status: 'none' } : settled(settlement));
+    },
+
+    redact({ proofId, payer }) {
+      return { proofId, payer };
     },
 
     receipt(_authorization, charge, context) {

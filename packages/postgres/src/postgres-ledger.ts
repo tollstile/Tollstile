@@ -1,4 +1,4 @@
-import { applyAccounting, TollstileError, type Authorization, type Charge, type Clock, type Ledger, type Money } from 'tollstile';
+import { applyAccounting, formatMoney, TollstileError, type Authorization, type Charge, type Clock, type Ledger, type Money } from 'tollstile';
 import { AUTHORIZATION_COLUMNS, CHARGE_COLUMNS, microsParam, parseAuthorization, parseCharge, parseSpend, type PostgresRow } from './rows';
 import { DEFAULT_TABLE_PREFIX, tableNames } from './schema';
 import { excludedFromSpend, list, nonTerminalCondition } from './states';
@@ -131,13 +131,17 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
     },
 
     async createCharge(input) {
-      const amount = microsParam(input.amount);
       return transaction(async (run) => {
         const authorization = await lockAuthorization(run, '$1', input.authorizationId);
         const existing = await readCharge(run, input.id);
         if (existing !== undefined) return { status: 'exists', charge: existing };
         if (authorization === undefined) return { status: 'missing' };
         if (authorization.expiresAt !== null && input.at >= authorization.expiresAt) return { status: 'expired' };
+        const amount = microsParam(input.amount);
+        const held = authorization.limit ?? [authorization.reserved, authorization.consumed].find((total) => total.micros !== 0n);
+        if (held !== undefined && held.currency !== input.amount.currency) {
+          throw currencyMismatch(`Authorization ${authorization.id} is in ${held.currency}`, input.amount);
+        }
 
         if (authorization.kind === 'single') {
           const { rows } = await run(
@@ -202,11 +206,9 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
         if (current?.payment !== from.payment || current.fulfillment !== from.fulfillment || authorization === undefined) {
           return { status: 'conflict', charge: current };
         }
+        const amount = microsParam(patch.amount ?? current.amount);
         if (patch.amount !== undefined && patch.amount.currency !== current.amount.currency) {
-          throw new TollstileError(
-            'CURRENCY_MISMATCH',
-            `Charge ${id} is in ${current.amount.currency} and cannot be charged in ${patch.amount.currency}. Tollstile never converts currencies.`,
-          );
+          throw currencyMismatch(`Charge ${id} is in ${current.amount.currency}`, patch.amount);
         }
 
         const settlement = patch.settlement ?? current.settlement;
@@ -230,7 +232,7 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
             from.fulfillment,
             to.payment,
             to.fulfillment,
-            microsParam(patch.amount ?? current.amount),
+            amount,
             patch.pending === undefined ? current.pending : patch.pending,
             settlement?.reference ?? null,
             settlement === null ? null : JSON.stringify(settlement.details),
@@ -244,6 +246,14 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
         const updated = await writeTotals(run, applyAccounting(authorization, current, next, at));
         return { status: 'moved', charge: next, authorization: updated };
       });
+    },
+
+    async replaceAuthorizationData(id, data, at) {
+      await query(`UPDATE ${tables.authorizations} SET data = $2::jsonb, updated_at = $3::timestamptz WHERE id = $1`, [
+        id,
+        JSON.stringify(data),
+        at.toISOString(),
+      ]);
     },
 
     getAuthorization: (id) => readAuthorization(query, id),
@@ -289,6 +299,10 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
 /** Authorizations opened without a limit start in USD; adopt the charge's currency while they are empty. */
 function sameCurrency(amount: Money, like: Money): Money {
   return amount.micros === 0n ? { currency: like.currency, micros: 0n } : amount;
+}
+
+function currencyMismatch(holder: string, amount: Money): TollstileError {
+  return new TollstileError('CURRENCY_MISMATCH', `${holder}; cannot record ${formatMoney(amount)}. Tollstile never converts currencies.`);
 }
 
 function inconsistent(message: string): TollstileError {

@@ -115,7 +115,13 @@ export function paidTool<
       throw error;
     }
 
-    const receipt = await pass.complete((await succeeded(result, registered.outputSchema)) ? 'succeeded' : 'failed');
+    const { receipt, denial } = await pass.complete((await succeeded(result, registered.outputSchema)) ? 'succeeded' : 'failed');
+    if (denial !== null) {
+      // Settlement was rejected: the payer does not get the output, only a fresh challenge.
+      const rendering = renderDenial(denial, acceptsMpp(clientCapabilities));
+      if (rendering.kind === 'error') throw rendering.error;
+      return rendering.result;
+    }
     if (Object.keys(receipt.meta).length === 0) return result;
     return { ...result, _meta: { ...result._meta, ...receipt.meta } };
   };

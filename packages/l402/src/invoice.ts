@@ -22,8 +22,15 @@ export type InvoiceState =
  * @example
  * const invoices: InvoiceProvider = lndRest({ url: 'https://127.0.0.1:8080', macaroon: process.env.LND_INVOICE_MACAROON_HEX });
  */
+export type InvoiceRequest = {
+  readonly amountMsat: bigint;
+  readonly memo: string;
+  readonly expirySeconds: number;
+  readonly signal: AbortSignal;
+};
+
 export type InvoiceProvider = {
-  createInvoice(amountMsat: bigint, memo: string, expirySeconds: number, signal: AbortSignal): Promise<Invoice>;
+  createInvoice(request: InvoiceRequest): Promise<Invoice>;
   lookupInvoice(paymentHash: string, signal: AbortSignal): Promise<InvoiceState>;
 };
 

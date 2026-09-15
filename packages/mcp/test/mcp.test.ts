@@ -390,17 +390,16 @@ describe('@tollstile/mcp with the test rail', () => {
     expect(ledger.charges()).toHaveLength(0);
   });
 
-  // The Pass contract does not tell the adapter that settlement was rejected (see the README). The
-  // output is served, the charge is recorded as failed, and no receipt is attached.
-  it('returns the tool output without a receipt when settlement after the tool is rejected', async () => {
+  it('withholds the tool output and asks for payment again when settlement after the tool is rejected', async () => {
     const { connect, callTool, test, charges } = setup();
     await connect();
     test.simulate({ settle: 'reject' });
 
     const result = await callTool('forecast', { 'tollstile/test-payment': 'test proof=p1' });
 
-    expect(textOf(result)).toBe('clear, paid via rail');
-    expect(result._meta).toEqual({ 'weather/source': 'model' });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).not.toContain('clear');
+    expect(denialOf(result)).toMatchObject({ reason: 'settlement_rejected', price: '$0.01' });
     expect(charges()).toEqual(['failed/completed']);
   });
 });

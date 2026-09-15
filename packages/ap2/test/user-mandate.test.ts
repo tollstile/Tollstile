@@ -23,14 +23,12 @@ async function setup(options: Partial<UserMandateOptions> = {}, price = '$5.00')
   const gate = toll.price(price, { require: [requirement] });
   const seconds = () => Math.floor(clock.now().getTime() / 1000);
 
-  /** Asks for the resource, and returns the quote token and the nonce an agent reads from it. */
+  /** Asks for the resource, and returns the quote token and nonce from the 402 body. */
   const quote = async () => {
     const entry = await gate.enter(httpContext(new Request(URL_)));
     if (entry.kind !== 'denied') throw new Error('expected a challenge');
-    const token = entry.denial.body.quote;
-    if (typeof token !== 'string') throw new Error('no quote');
-    const [payload = ''] = token.split('.');
-    const { nonce } = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { nonce: string };
+    const { quote: token, nonce } = entry.denial.body;
+    if (typeof token !== 'string' || typeof nonce !== 'string') throw new Error('no quote');
     return { token, nonce };
   };
 
@@ -56,7 +54,8 @@ async function setup(options: Partial<UserMandateOptions> = {}, price = '$5.00')
 async function enter(gate: Gate<readonly Rail[]>, request: Request) {
   const entry = await gate.enter(httpContext(request));
   if (entry.kind === 'admitted') {
-    await entry.pass.complete('succeeded');
+    const completion = await entry.pass.complete('succeeded');
+    if (completion.settlement !== 'settled') throw new Error(`expected settlement, got ${completion.settlement}`);
     return { status: 200, reason: null };
   }
   const body = (await toResponse(entry.denial).json()) as { reason?: string | null };

@@ -156,7 +156,7 @@ export type TransitionResult =
 export type LedgerReader = {
   getAuthorization(id: string): Promise<Authorization | undefined>;
   getCharge(id: string): Promise<Charge | undefined>;
-  /** Charges by a payer since a point in time that are not released, failed, or refunded. */
+  /** Charges by a payer since a point in time that are not released, failed, or refunded. Totals are sorted by currency code. */
   spendSince(payer: string, since: Date): Promise<{ readonly count: number; readonly total: readonly Money[] }>;
 };
 
@@ -181,6 +181,8 @@ export type Ledger = LedgerReader &
     createCharge(input: NewCharge): Promise<CreateChargeResult>;
     /** Compare-and-set on both axes; updates the authorization's reserved and consumed amounts in the same step. */
     transitionCharge(id: string, from: ChargeStates, to: ChargeStates, at: Date, patch?: ChargePatch): Promise<TransitionResult>;
+    /** Replaces an authorization's rail data, e.g. to drop a signature once it can no longer be used. */
+    replaceAuthorizationData(id: string, data: Json, at: Date): Promise<void>;
     /** Charges that are not terminal and were last updated before `before`. */
     pendingCharges(before: Date): Promise<readonly Charge[]>;
   };
@@ -236,6 +238,12 @@ export type Verification<Data extends Json = Json> =
       readonly limit: Money | null;
       readonly expiresAt: Date | null;
       readonly data: Data;
+      /**
+       * Set when the payment already moved during verification, e.g. a transfer the payer pushed
+       * on-chain. Core records the charge as settled before the handler runs; if the handler fails,
+       * it is refunded when the rail can refund, and otherwise stays settled and is reported.
+       */
+      readonly settled?: Settlement;
     };
 
 export type SettleResult =
@@ -267,7 +275,8 @@ export type Rail<Name extends string = string, Data extends Json = Json> = {
   readonly capabilities: Capabilities;
   /** The offer that covers `terms.price`, or `null` if this rail cannot serve it (e.g. below a minimum). */
   offer(terms: Omit<RouteTerms, 'flow'>): Promise<Omit<Offer, 'flow'> | null>;
-  challenge(quote: Quote, quoteToken: string, offer: Offer, context: Context): Promise<RailChallenge>;
+  /** May call the provider, e.g. to create an invoice. A provider failure omits this rail's offer from the 402. */
+  challenge(quote: Quote, quoteToken: string, offer: Offer, context: Context, operation: Operation): Promise<RailChallenge>;
   verify(context: Context, terms: VerifyTerms, operation: Operation): Promise<Verification<Data>>;
   settle(authorization: Authorization & { readonly data: Data }, charge: Charge, operation: Operation): Promise<SettleResult>;
   refund(authorization: Authorization & { readonly data: Data }, charge: Charge, operation: Operation): Promise<RefundResult>;
@@ -275,6 +284,12 @@ export type Rail<Name extends string = string, Data extends Json = Json> = {
   release(authorization: Authorization & { readonly data: Data }, charge: Charge, operation: Operation): Promise<void>;
   lookup(authorization: Authorization & { readonly data: Data }, charge: Charge, operation: Operation): Promise<LookupResult>;
   receipt(authorization: Authorization & { readonly data: Data }, charge: Charge, context: Context): Receipt;
+  /**
+   * Drops what a single-use authorization no longer needs once its charge is settled, failed, or
+   * refunded, such as a payer signature. Not called on `released`: the same proof may be presented
+   * again. What remains must still serve `lookup` and `refund`.
+   */
+  redact?(data: Data): Data;
 };
 
 // ─── Access policies and requirements ─────────────────────────────────────────
@@ -308,12 +323,15 @@ export type RequirementInput = {
   readonly ledger: LedgerReader;
   readonly claims: Claims;
   readonly now: Date;
+  /** Aborted when the provider timeout elapses. */
+  readonly signal: AbortSignal;
 };
 
 export type RequirementResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly status: 402 | 403 | 429; readonly reason: string };
+  | { readonly ok: false; readonly status: 402 | 403 | 429 | 503; readonly reason: string };
 
+/** Throw `PROVIDER_UNAVAILABLE` or `PROVIDER_TIMEOUT` when evidence cannot be checked right now; the request gets `503`. */
 export type Requirement = {
   readonly name: string;
   check(input: RequirementInput): Promise<RequirementResult>;
@@ -402,10 +420,23 @@ export type Payment<Rails extends readonly Rail[]> =
 
 export type Outcome = 'succeeded' | 'failed';
 
+/**
+ * What happened to the money after the handler.
+ * - `settled`: charged. Attach the receipt.
+ * - `rejected`: the provider refused settlement. Withhold the output and send `denial`, a fresh 402.
+ * - `unknown`: the outcome is not known yet and reconciliation will resolve it. Serve the output.
+ * - `none`: nothing was charged, e.g. the handler failed, a subscriber was granted, or a credit balance paid.
+ */
+export type Completion = {
+  readonly settlement: 'settled' | 'rejected' | 'unknown' | 'none';
+  readonly receipt: Receipt;
+  readonly denial: Denial | null;
+};
+
 export type Pass<Rails extends readonly Rail[]> = {
   readonly payment: Payment<Rails>;
   /** Call exactly once, after the handler, with whether it succeeded. */
-  complete(outcome: Outcome): Promise<Receipt>;
+  complete(outcome: Outcome): Promise<Completion>;
 };
 
 export type ChallengeOffer = {

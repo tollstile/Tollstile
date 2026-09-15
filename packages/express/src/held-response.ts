@@ -1,5 +1,5 @@
 import type { NextFunction, Response as ExpressResponse } from 'express';
-import type { Pass, Rail, Receipt } from 'tollstile';
+import type { Completion as PassCompletion, Denial, Pass, Rail } from 'tollstile';
 
 export type HeldResponse = {
   /** Passed to the handler in place of Express's `next`, so `next(error)` counts as a failure. */
@@ -8,7 +8,7 @@ export type HeldResponse = {
   fail(): Promise<void>;
 };
 
-type Completion = { readonly ok: true; readonly receipt: Receipt } | { readonly ok: false; readonly error: unknown };
+type Completion = { readonly ok: true; readonly completion: PassCompletion } | { readonly ok: false; readonly error: unknown };
 
 /**
  * Holds the response back from the moment it would commit its headers until `pass.complete` has
@@ -36,7 +36,7 @@ export function holdResponse<Rails extends readonly Rail[]>(res: ExpressResponse
 
   function complete(status: number): Promise<Completion> {
     completion ??= pass.complete(failed || status >= 400 ? 'failed' : 'succeeded').then(
-      (receipt): Completion => ({ ok: true, receipt }),
+      (completion): Completion => ({ ok: true, completion }),
       // catch-reason: completion runs detached from the handler, so its error is carried to
       // `release`, the one place that hands it to Express.
       (error: unknown): Completion => ({ ok: false, error }),
@@ -63,7 +63,12 @@ export function holdResponse<Rails extends readonly Rail[]>(res: ExpressResponse
       report(result.error);
       return;
     }
-    for (const [name, value] of result.receipt.headers) res.append(name, value);
+    const { receipt, denial } = result.completion;
+    if (denial !== null) {
+      sendDenial(denial);
+      return;
+    }
+    for (const [name, value] of receipt.headers) res.append(name, value);
     // catch-reason: before they were held, these calls would have thrown synchronously inside the
     // handler; their errors must still reach Express.
     try {
@@ -75,6 +80,16 @@ export function holdResponse<Rails extends readonly Rail[]>(res: ExpressResponse
     // A writer told to wait for 'drain' while held would otherwise wait forever when the socket
     // never filled up.
     if (writerWaiting && !res.writableNeedDrain) res.emit('drain');
+  }
+
+  /** Settlement was rejected: the held output is discarded and the payer gets a fresh challenge instead. */
+  function sendDenial(denial: Denial): void {
+    for (const header of res.getHeaderNames()) res.removeHeader(header);
+    res.statusCode = denial.status;
+    res.setHeader('content-type', 'application/json');
+    for (const [name, value] of [...denial.headers, ...denial.offers.flatMap((offer) => offer.challenge.headers)]) res.append(name, value);
+    original.end(JSON.stringify(denial.body));
+    if (writerWaiting) res.emit('drain');
   }
 
   function hold(status: number, call: () => void): void {

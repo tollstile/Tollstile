@@ -414,6 +414,112 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
       });
     });
 
+    describe('replaceAuthorizationData', () => {
+      it('replaces the data and updatedAt, and keeps everything else', async () => {
+        const { ledger, open, created, clock } = await setup();
+        await open({ data: { proofId: 'p1', signature: '0xsig' } });
+        const opened = await ledger.getAuthorization('auth_1');
+        await created();
+        const afterCharge = await ledger.getAuthorization('auth_1');
+
+        clock.advance(1_000);
+        await expect(ledger.replaceAuthorizationData('auth_1', { proofId: 'p1' }, clock.now())).resolves.toBeUndefined();
+
+        expect(await ledger.getAuthorization('auth_1')).toEqual({ ...afterCharge, data: { proofId: 'p1' }, updatedAt: clock.now() });
+        expect(opened?.createdAt).toEqual((await ledger.getAuthorization('auth_1'))?.createdAt);
+        await ledger.replaceAuthorizationData('auth_1', null, clock.now());
+        expect((await ledger.getAuthorization('auth_1'))?.data).toBeNull();
+      });
+
+      it('does nothing for an unknown authorization', async () => {
+        const { ledger, clock } = await setup();
+        await expect(ledger.replaceAuthorizationData('missing', { a: 1 }, clock.now())).resolves.toBeUndefined();
+        expect(await ledger.getAuthorization('missing')).toBeUndefined();
+      });
+    });
+
+    describe('currencies and storable amounts', () => {
+      it('refuses a charge in another currency than the authorization limit, and reserves nothing', async () => {
+        const { ledger, open, charge, totals } = await setup();
+        await open();
+
+        await expect(charge({ amount: money('EUR', 1_000n) })).rejects.toMatchObject({ code: 'CURRENCY_MISMATCH' });
+        expect(await ledger.getCharge('chg_1')).toBeUndefined();
+        expect(await totals()).toEqual({ reserved: 0n, consumed: 0n });
+      });
+
+      it('holds an unlimited authorization to the currency it has reserved or consumed', async () => {
+        const { ledger, open, charge, created, move } = await setup();
+        await open({ kind: 'reusable', limit: null });
+
+        const first = await created({ id: 'chg_1', amount: money('EUR', 5_000n) });
+        await expect(charge({ id: 'chg_2', amount: usd(5_000n) })).rejects.toMatchObject({ code: 'CURRENCY_MISMATCH' });
+
+        const settling = await move(first, state('settling', 'completed'), { pending: 'settle' });
+        await move(settling.charge, state('settled', 'completed'), { pending: null });
+        await expect(charge({ id: 'chg_2', amount: usd(5_000n) })).rejects.toMatchObject({ code: 'CURRENCY_MISMATCH' });
+        expect((await charge({ id: 'chg_3', amount: money('EUR', 1_000n) })).status).toBe('created');
+        expect(await ledger.getAuthorization('auth_1')).toMatchObject({ reserved: money('EUR', 1_000n), consumed: money('EUR', 5_000n) });
+      });
+
+      it('lets an unlimited authorization change currency once everything on it was released', async () => {
+        const { ledger, open, created, move } = await setup();
+        await open({ kind: 'reusable', limit: null });
+        await move(await created({ id: 'chg_1', amount: money('EUR', 5_000n) }), state('released', 'failed'), { pending: null });
+
+        await created({ id: 'chg_2', amount: usd(2_000n) });
+        expect(await ledger.getAuthorization('auth_1')).toMatchObject({ reserved: usd(2_000n), consumed: usd(0n) });
+      });
+
+      it('refuses amounts outside 0 to 2^63 - 1, and writes nothing', async () => {
+        const { ledger, open, charge, totals } = await setup();
+        await open({ kind: 'reusable', limit: null });
+
+        await expect(charge({ amount: usd(INT64_MAX + 1n) })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+        await expect(charge({ amount: usd(-1n) })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
+        expect(await ledger.getCharge('chg_1')).toBeUndefined();
+        expect(await totals()).toEqual({ reserved: 0n, consumed: 0n });
+      });
+
+      it('reports exists, missing, and expired before refusing an amount', async () => {
+        const { open, charge, created, clock } = await setup();
+        expect(await charge({ amount: usd(-1n) })).toEqual({ status: 'missing' });
+
+        await open({ kind: 'reusable', limit: usd(100_000n), expiresAt: new Date(clock.now().getTime() + 1_000) });
+        const first = await created();
+        expect(await charge({ amount: money('EUR', -1n) })).toEqual({ status: 'exists', charge: first });
+        expect(await charge({ id: 'chg_2', amount: money('EUR', 1n), at: new Date(clock.now().getTime() + 1_000) })).toEqual({ status: 'expired' });
+      });
+
+      it('refuses a patched amount in another currency or out of range, and moves nothing', async () => {
+        const { ledger, open, created, clock, totals } = await setup();
+        await open();
+        const current = await created();
+        const from = state('reserved', 'running');
+        const to = state('settling', 'completed');
+
+        await expect(ledger.transitionCharge('chg_1', from, to, clock.now(), { amount: money('EUR', 1_000n) })).rejects.toMatchObject({
+          code: 'CURRENCY_MISMATCH',
+        });
+        await expect(ledger.transitionCharge('chg_1', from, to, clock.now(), { amount: usd(INT64_MAX + 1n) })).rejects.toMatchObject({
+          code: 'INVALID_AMOUNT',
+        });
+        expect(await ledger.getCharge('chg_1')).toEqual(current);
+        expect(await totals()).toEqual({ reserved: 10_000n, consumed: 0n });
+      });
+
+      it('reports a conflict before refusing a patched amount', async () => {
+        const { ledger, open, created, clock } = await setup();
+        await open();
+        const current = await created();
+
+        const result = await ledger.transitionCharge('chg_1', state('settling', 'completed'), state('settled', 'completed'), clock.now(), {
+          amount: money('EUR', -1n),
+        });
+        expect(result).toEqual({ status: 'conflict', charge: current });
+      });
+    });
+
     describe('pendingCharges', () => {
       it('returns charges that are not terminal and were last updated before the cutoff', async () => {
         const { ledger, open, created, move, clock } = await setup();
@@ -470,9 +576,7 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
         await move(refundPending.charge, state('refunded', 'completed'), { pending: null });
         await created({ id: 'other', requestId: 'other', authorizationId: 'auth_other', payer: 'payer_2', amount: usd(320_000n), at: clock.now() });
 
-        const spend = await ledger.spendSince('payer_1', since);
-        expect(spend.count).toBe(3);
-        expect([...spend.total].sort((a, b) => a.currency.localeCompare(b.currency))).toEqual([money('EUR', 5_000n), usd(30_000n)]);
+        expect(await ledger.spendSince('payer_1', since)).toEqual({ count: 3, total: [money('EUR', 5_000n), usd(30_000n)] });
         expect(await ledger.spendSince('payer_2', since)).toEqual({ count: 1, total: [usd(320_000n)] });
         expect(await ledger.spendSince('nobody', since)).toEqual({ count: 0, total: [] });
       });

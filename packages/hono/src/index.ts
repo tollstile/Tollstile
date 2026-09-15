@@ -35,7 +35,12 @@ export function tollstile<Rails extends readonly Rail[]>(
     await next();
 
     const failed = c.error !== undefined || c.res.status >= 400;
-    const receipt = await entry.pass.complete(failed ? 'failed' : 'succeeded');
+    const { receipt, denial } = await entry.pass.complete(failed ? 'failed' : 'succeeded');
+    if (denial !== null) {
+      // Settlement was rejected: the payer does not get the output, only a fresh challenge.
+      c.res = toResponse(denial);
+      return undefined;
+    }
     for (const [name, value] of receipt.headers) c.res.headers.append(name, value);
     return undefined;
   };

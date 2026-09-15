@@ -54,7 +54,7 @@ async function setup(options: { readonly rail?: Partial<KyapayOptions>; readonly
       return { status: response.status, body: (await response.json()) as Record<string, unknown>, headers: response.headers, handlerRuns: 0 };
     }
     const outcome = input.handler === undefined ? 'succeeded' : await input.handler(entry.pass.payment);
-    const receipt = await entry.pass.complete(outcome);
+    const { receipt } = await entry.pass.complete(outcome);
     const responseHeaders = new Headers();
     for (const [name, value] of receipt.headers) responseHeaders.append(name, value);
     return { status: outcome === 'succeeded' ? 200 : 500, body: {}, headers: responseHeaders, handlerRuns: 1 };
@@ -134,7 +134,7 @@ describe('verification', () => {
     const { toll, token } = await setup();
     const entry = await toll.price('$0.01').enter(mcpContext('report', { 'kyapay/token': await token() }));
     if (entry.kind !== 'admitted') throw new Error('expected admission');
-    const receipt = await entry.pass.complete('succeeded');
+    const { receipt } = await entry.pass.complete('succeeded');
     expect(receipt.meta).toMatchObject({ 'kyapay/receipt': { success: true, amount_charged: '0.01' } });
   });
 

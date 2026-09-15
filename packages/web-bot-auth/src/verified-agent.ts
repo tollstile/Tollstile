@@ -16,7 +16,7 @@ export type VerifiedAgentOptions = {
   readonly requireNonce?: boolean;
   /** Longest a fetched directory is reused, in milliseconds; a shorter `Cache-Control: max-age` wins. Defaults to 1 hour. */
   readonly cacheTtlMs?: number;
-  /** Upper bound for one directory fetch, in milliseconds. Defaults to 3 seconds. */
+  /** Upper bound for one directory fetch, in milliseconds, within Tollstile's provider timeout. Defaults to 3 seconds. */
   readonly timeoutMs?: number;
   /** Defaults to the global `fetch`. */
   readonly fetch?: typeof fetch;
@@ -35,7 +35,8 @@ const NONCE_SCOPE = 'web-bot-auth';
  * Admits only requests signed by a trusted agent under Web Bot Auth (RFC 9421 HTTP message
  * signatures, draft-ietf-webbotauth-httpsig-protocol-00). Keys come from the agent's
  * `/.well-known/http-message-signatures-directory`. Denies with 403 and a reason such as
- * `signature_missing`, `signature_invalid`, `agent_untrusted`, or `key_not_found`.
+ * `signature_missing`, `signature_invalid`, `agent_untrusted`, or `key_not_found`, and with 503
+ * `directory_unavailable` when the agent's directory cannot be reached and nothing usable is cached.
  *
  * @example
  * ```ts
@@ -56,10 +57,10 @@ export function verifiedAgent(options: VerifiedAgentOptions): Requirement {
     cacheTtlMs: duration('cacheTtlMs', options.cacheTtlMs, 3_600_000),
   });
 
-  const resolveKey = async (agent: SignatureAgent, keyid: string, now: Date): Promise<KeyResolution> => {
+  const resolveKey = async (agent: SignatureAgent, keyid: string, now: Date, signal: AbortSignal): Promise<KeyResolution> => {
     if (!trusted(agent.origin)) return { status: 'rejected', reason: 'agent_untrusted' };
-    const lookup = await directory.lookup(agent.origin, now);
-    if (lookup.status === 'unavailable') return { status: 'rejected', reason: 'directory_unavailable' };
+    const lookup = await directory.lookup(agent.origin, now, signal);
+    if (lookup.status !== 'resolved') return { status: 'rejected', reason: `directory_${lookup.status}` };
     const key = lookup.keys.get(keyid);
     if (key === undefined || TEST_KEYS.has(key.thumbprint)) return { status: 'rejected', reason: 'key_not_found' };
     return { status: 'found', key };
@@ -67,7 +68,7 @@ export function verifiedAgent(options: VerifiedAgentOptions): Requirement {
 
   return {
     name: 'verified-agent',
-    async check({ context, claims, now }) {
+    async check({ context, claims, now, signal }) {
       // An MCP call's context describes the JSON-RPC message, not the HTTP request an agent signed.
       if (context.transport !== 'http' || context.request === null) return deny('http_request_required');
 
@@ -76,8 +77,13 @@ export function verifiedAgent(options: VerifiedAgentOptions): Requirement {
         maxAgeMs,
         clockSkewMs,
         requireNonce: options.requireNonce ?? false,
-        resolveKey: (agent, keyid) => resolveKey(agent, keyid, now),
+        resolveKey: (agent, keyid) => resolveKey(agent, keyid, now, signal),
       });
+      // An unreachable directory says nothing about the signer (draft §6.10): the request is
+      // unverified, not forbidden, so the agent may retry.
+      if (verification.status === 'rejected' && verification.reason === 'directory_unavailable') {
+        return { ok: false, status: 503, reason: verification.reason };
+      }
       if (verification.status === 'rejected') return deny(verification.reason);
 
       if (verification.nonce !== undefined) {

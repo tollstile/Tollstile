@@ -2,7 +2,9 @@ import { readVerificationKey, type VerificationKey } from './verification-key';
 
 // HTTP Message Signatures Directory discovery (draft-ietf-webbotauth-httpsig-protocol-00 §5.5) with
 // the bounds §6.7 asks for, and the cache semantics of §6.10: a directory that resolves replaces
-// what is cached; a failed fetch is not evidence and never evicts.
+// what is cached; a failed fetch is not evidence and never evicts. Failures are split by whether
+// retrying can help: `unavailable` (network, timeout, 5xx) is transient; `invalid` (other statuses,
+// redirects, oversized or malformed bodies) is the directory operator's to fix.
 
 export const DIRECTORY_PATH = '/.well-known/http-message-signatures-directory';
 const MEDIA_TYPE = 'application/http-message-signatures-directory+json';
@@ -17,13 +19,18 @@ const RETRY_AFTER_FAILURE_MS = 30_000;
 /** How long past its expiry a cached directory keeps verifying while its origin is unreachable. */
 const STALE_IF_ERROR_MS = 24 * 60 * 60 * 1000;
 
+export type DirectoryFailure = 'unavailable' | 'invalid';
+
 export type DirectoryLookup =
   | { readonly status: 'resolved'; readonly keys: ReadonlyMap<string, VerificationKey> }
-  | { readonly status: 'unavailable' };
+  | { readonly status: DirectoryFailure };
 
 export type KeyDirectory = {
-  /** Keys published by `origin`, from cache when fresh. `origin` must already be trusted. */
-  lookup(origin: string, now: Date): Promise<DirectoryLookup>;
+  /**
+   * Keys published by `origin`, from cache when fresh. `origin` must already be trusted. `signal`
+   * aborts a fetch this call starts; a fetch already in flight for the origin is shared as it is.
+   */
+  lookup(origin: string, now: Date, signal: AbortSignal): Promise<DirectoryLookup>;
 };
 
 export type KeyDirectoryOptions = {
@@ -39,11 +46,13 @@ type Entry = {
   readonly keys: ReadonlyMap<string, VerificationKey> | null;
   readonly expiresAt: number;
   readonly retryAt: number;
+  /** The last failed fetch, reported while `retryAt` has not passed and nothing usable is cached. */
+  readonly failure: DirectoryFailure | null;
 };
 
 export function keyDirectory(options: KeyDirectoryOptions): KeyDirectory {
   const entries = new Map<string, Entry>();
-  const inFlight = new Map<string, Promise<Fetched | undefined>>();
+  const inFlight = new Map<string, Promise<Fetched | DirectoryFailure>>();
 
   const remember = (origin: string, entry: Entry) => {
     entries.delete(origin);
@@ -54,46 +63,51 @@ export function keyDirectory(options: KeyDirectoryOptions): KeyDirectory {
     entries.set(origin, entry);
   };
 
-  const cached = (entry: Entry | undefined, at: number): DirectoryLookup => {
-    if (entry?.keys == null || at >= entry.expiresAt + STALE_IF_ERROR_MS) return { status: 'unavailable' };
+  const cached = (entry: Entry | undefined, at: number, failure: DirectoryFailure): DirectoryLookup => {
+    if (entry?.keys == null || at >= entry.expiresAt + STALE_IF_ERROR_MS) return { status: failure };
     return { status: 'resolved', keys: entry.keys };
   };
 
   // Concurrent requests naming the same directory share one fetch (Appendix C.3).
-  const fetchOnce = (origin: string): Promise<Fetched | undefined> => {
+  const fetchOnce = (origin: string, signal: AbortSignal): Promise<Fetched | DirectoryFailure> => {
     const pending = inFlight.get(origin);
     if (pending !== undefined) return pending;
-    const started = fetchDirectory(origin, options).finally(() => inFlight.delete(origin));
+    const started = fetchDirectory(origin, options, signal).finally(() => inFlight.delete(origin));
     inFlight.set(origin, started);
     return started;
   };
 
   return {
-    async lookup(origin, now) {
+    async lookup(origin, now, signal) {
       const at = now.getTime();
       const entry = entries.get(origin);
       if (entry?.keys != null && at < entry.expiresAt) return { status: 'resolved', keys: entry.keys };
-      if (entry !== undefined && at < entry.retryAt) return cached(entry, at);
+      if (entry?.failure != null && at < entry.retryAt) return cached(entry, at, entry.failure);
 
-      const fetched = await fetchOnce(origin);
-      if (fetched === undefined) {
-        remember(origin, { keys: entry?.keys ?? null, expiresAt: entry?.expiresAt ?? at, retryAt: at + RETRY_AFTER_FAILURE_MS });
-        return cached(entry, at);
+      const fetched = await fetchOnce(origin, signal);
+      if (typeof fetched === 'string') {
+        remember(origin, {
+          keys: entry?.keys ?? null,
+          expiresAt: entry?.expiresAt ?? at,
+          retryAt: at + RETRY_AFTER_FAILURE_MS,
+          failure: fetched,
+        });
+        return cached(entry, at, fetched);
       }
-      remember(origin, { keys: fetched.keys, expiresAt: at + Math.min(options.cacheTtlMs, fetched.ttlMs), retryAt: 0 });
+      remember(origin, { keys: fetched.keys, expiresAt: at + Math.min(options.cacheTtlMs, fetched.ttlMs), retryAt: 0, failure: null });
       return { status: 'resolved', keys: fetched.keys };
     },
   };
 }
 
-async function fetchDirectory(origin: string, options: KeyDirectoryOptions): Promise<Fetched | undefined> {
-  const response = await readBounded(`${origin}${DIRECTORY_PATH}`, options);
-  if (response === undefined) return undefined;
+async function fetchDirectory(origin: string, options: KeyDirectoryOptions, signal: AbortSignal): Promise<Fetched | DirectoryFailure> {
+  const response = await readBounded(`${origin}${DIRECTORY_PATH}`, options, signal);
+  if (typeof response === 'string') return response;
 
   const document = parseJson(response.body);
-  if (typeof document !== 'object' || document === null || !('keys' in document) || !Array.isArray(document.keys)) return undefined;
+  if (typeof document !== 'object' || document === null || !('keys' in document) || !Array.isArray(document.keys)) return 'invalid';
   const entries: readonly unknown[] = document.keys;
-  if (entries.length > MAX_KEYS) return undefined;
+  if (entries.length > MAX_KEYS) return 'invalid';
 
   const keys = new Map<string, VerificationKey>();
   for (const entry of entries) {
@@ -104,30 +118,31 @@ async function fetchDirectory(origin: string, options: KeyDirectoryOptions): Pro
 }
 
 /**
- * GETs `url` without following redirects, accepting only 200 and at most MAX_BYTES within the
- * timeout. `undefined` is a discovery failure: not evidence about the signer (§6.10).
+ * GETs `url` without following redirects, accepting only 200 and at most MAX_BYTES before the
+ * timeout or `signal`. Failures are not evidence about the signer (§6.10).
  */
 async function readBounded(
   url: string,
   options: KeyDirectoryOptions,
-): Promise<{ readonly body: string; readonly cacheControl: string | null } | undefined> {
-  // catch-reason: DNS, TLS, connection, and timeout failures surface as rejections from fetch and the
-  // body stream; each is a discovery failure, which the caller reports as an unverified request.
+  signal: AbortSignal,
+): Promise<{ readonly body: string; readonly cacheControl: string | null } | DirectoryFailure> {
+  // catch-reason: DNS, TLS, connection, abort, and timeout failures surface as rejections from fetch
+  // and the body stream; each means the directory could not be reached, which is retried later.
   try {
     const response = await options.fetch(url, {
       method: 'GET',
       redirect: 'manual',
       headers: { accept: MEDIA_TYPE },
-      signal: AbortSignal.timeout(options.timeoutMs),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs)]),
     });
     if (response.status !== 200 || response.body === null) {
       await response.body?.cancel();
-      return undefined;
+      return response.status >= 500 ? 'unavailable' : 'invalid';
     }
     const declared = Number(response.headers.get('content-length') ?? '0');
     if (declared > MAX_BYTES) {
       await response.body.cancel();
-      return undefined;
+      return 'invalid';
     }
 
     const reader = response.body.getReader();
@@ -139,7 +154,7 @@ async function readBounded(
       total += value.length;
       if (total > MAX_BYTES) {
         await reader.cancel();
-        return undefined;
+        return 'invalid';
       }
       chunks.push(value);
     }
@@ -151,7 +166,7 @@ async function readBounded(
     }
     return { body: new TextDecoder().decode(bytes), cacheControl: response.headers.get('cache-control') };
   } catch {
-    return undefined;
+    return 'unavailable';
   }
 }
 

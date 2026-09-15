@@ -67,6 +67,17 @@ async function resolve(runtime: Runtime, executor: Executor, current: Current): 
 
     case 'settled':
       // Money moved, but the service was never confirmed to exist.
+      if (executor.capabilities?.refund === false) {
+        runtime.emit({
+          type: 'error',
+          error: new TollstileError(
+            'RECONCILIATION_SKIPPED',
+            `Charge ${charge.id} was paid but its fulfillment is ${charge.fulfillment}, and "${executor.name}" cannot refund. Refund the payer outside Tollstile.`,
+          ),
+          charge,
+        });
+        return;
+      }
       await refundCharge(runtime, executor, current, 'failed');
       return;
 

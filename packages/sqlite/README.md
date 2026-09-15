@@ -71,8 +71,9 @@ Parameters are only strings, numbers, and `null`. Money is bound as decimal text
 
 A transaction in which the application reads, decides, and writes needs a connection held across `await`s. Synchronous drivers share one connection across all concurrent requests, so another request's statements would land inside the open transaction, and D1 cannot hold one open at all. The ledger avoids both problems by expressing every decision in SQL:
 
-- **`createCharge`** is one batch. Its first statement computes the status (`exists`, `missing`, `expired`, `busy`, `insufficient`, or `created`) in a single `CASE`; the insert is conditioned on that same expression. The reservation and the creation history row are conditioned on "this charge has no history row yet", which within the batch means the insert just created it.
+- **`createCharge`** is one batch. Its first statement computes the status (`exists`, `missing`, `expired`, an unstorable amount, a currency other than the authorization's, `busy`, `insufficient`, or `created`) in a single `CASE`; the insert is conditioned on that same expression. The reservation and the creation history row are conditioned on "this charge has no history row yet", which within the batch means the insert just created it.
 - **`transitionCharge`** is one batch. Every statement carries the same compare-and-set condition (`id`, `payment`, `fulfillment`), and only the last one changes the charge, so the authorization's `reserved` / `consumed` update, the history row, and the charge update all see the same charge or none of them match. The accounting classes are generated from core's `accountingClass`.
+- **`replaceAuthorizationData`** is one `UPDATE`. Core calls it with the rail's `redact` output when a single-use charge becomes final, to drop evidence such as payer signatures.
 - **`openAuthorization`** is `INSERT … ON CONFLICT DO NOTHING RETURNING` plus a `SELECT` in one batch. **`claim`** is one `INSERT … ON CONFLICT DO UPDATE … WHERE expired RETURNING` statement; of several concurrent claims of one key, one wins.
 
 Because SQLite runs one write transaction at a time, concurrent `createCharge` calls on one authorization cannot over-reserve it: for a single-use authorization, one wins and the rest are `busy`.
@@ -145,7 +146,7 @@ D1 returns every `INTEGER` as a JavaScript number, which is why money is read as
 | `tollstile_charge_transitions` | Append-only history. Version 1 is the creation; every transition adds a row in the same transaction. |
 | `tollstile_claims` | Single-use keys (nonces, replay windows) until `expires_at`. |
 
-- **Money** is integer micros (`1 USD = 1,000,000`) in a 64-bit `INTEGER` with a currency code. Amounts outside `0 … 2^63 − 1` are refused with `INVALID_AMOUNT`. SQLite silently turns integer overflow into `REAL`; `STRICT` tables refuse to store it, so an overflowing total fails the transaction instead.
+- **Money** is integer micros (`1 USD = 1,000,000`) in a 64-bit `INTEGER` with a currency code. Amounts outside `0 … 2^63 − 1` are refused with `INVALID_AMOUNT`, and a charge or patched amount in another currency than the authorization holds is refused with `CURRENCY_MISMATCH`, as in `memoryLedger`. SQLite silently turns integer overflow into `REAL`; `STRICT` tables refuse to store it, so an overflowing total fails the transaction instead.
 - **Timestamps** are `INTEGER` milliseconds since the Unix epoch, UTC: `strftime('%Y-%m-%dT%H:%M:%fZ', created_at / 1000.0, 'unixepoch')` makes them readable.
 - **JSON** is `TEXT`, checked with `json_valid`.
 - `pendingCharges` uses a partial index whose condition is generated from core's `isChargeTerminal`; `spendSince` uses `(payer, created_at)`.
@@ -160,8 +161,8 @@ DELETE FROM tollstile_claims WHERE expires_at < (unixepoch() - 86400) * 1000;
 
 Tested in this repository, with `node:sqlite` (SQLite 3.50.4) on Node 22:
 
-- The shared ledger conformance suite, run against `memoryLedger` and twice against `sqliteLedger`: once with the synchronous adapter above, and once through an adapter that behaves like D1 (every call resolves on a later turn, so calls interleave between batches) with `INTEGER` columns returned as `bigint`. It covers every `createCharge` status, single-use busy versus a released retry, reusable capacity, concurrent charges on one authorization (one wins), compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
-- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
+- The shared ledger conformance suite, run against `memoryLedger` and twice against `sqliteLedger`: once with the synchronous adapter above, and once through an adapter that behaves like D1 (every call resolves on a later turn, so calls interleave between batches) with `INTEGER` columns returned as `bigint`. It covers every `createCharge` status, single-use busy versus a released retry, reusable capacity, concurrent charges on one authorization (one wins), compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
+- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
 - Rollback of a whole batch when one statement fails; two connections sharing one WAL file; the query plans use the partial and payer indexes; overflow and rounded-integer refusal.
 
 Not verified:

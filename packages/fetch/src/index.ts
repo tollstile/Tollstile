@@ -59,7 +59,12 @@ export function paid<Rails extends readonly Rail[]>(
       throw error;
     }
 
-    const receipt = await entry.pass.complete(response.status >= 400 ? 'failed' : 'succeeded');
+    const { receipt, denial } = await entry.pass.complete(response.status >= 400 ? 'failed' : 'succeeded');
+    if (denial !== null) {
+      // Settlement was rejected: the payer does not get the output, only a fresh challenge.
+      await response.body?.cancel();
+      return toResponse(denial);
+    }
     if (receipt.headers.length === 0) return response;
 
     // Responses from fetch() and Response.redirect() have immutable headers, so the receipt goes on

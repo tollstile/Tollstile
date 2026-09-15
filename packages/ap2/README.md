@@ -41,8 +41,8 @@ export default {
 
 The agent's round trip:
 
-1. Call without payment → `402` with `quote` (a token whose base64url JSON payload carries `nonce`).
-2. Build the KB-SD-JWT for the closed mandate with `nonce` = the quote's `nonce` and `aud` = one of your audiences.
+1. Call without payment → `402` whose body carries `quote` (the token the rail echoes) and `nonce`.
+2. Build the KB-SD-JWT for the closed mandate with `nonce` = that `nonce` and `aud` = one of your audiences.
 3. Retry with the rail's proof carrying the quote, plus `AP2-Mandate: <open SD-JWT>~<KB-SD-JWT>~<disclosures>~` (or `_meta["ap2/mandate"]` over MCP).
 
 Failures are `402` with `{ "error": "requirement_failed", "requirement": "user-mandate", "reason": "mandate_required" | "mandate_invalid:<detail>" }`.
@@ -102,4 +102,4 @@ Tested with Vitest (Node 22 WebCrypto) against:
 - The encoded open → closed chain in AP2 `docs/ap2/payment_mandate.md`: `sd_hash` (`uixoHemm…PK0Ck`), disclosure digests (including the payee nested in `allowed_payees`), the KB-SD-JWT signature under the open mandate's `cnf.jwk`, tamper detection, and the amount. The root signature cannot be checked because the example's `agent-provider-key-1` is generated at runtime and not published; the full chain therefore fails closed with `issuer_signature_invalid`, and its `payment.reference` constraint is reported as unsupported.
 - Generated ES256 chains through `createTollstile` with `testRail()`: the 402 → mandate bound to the quote nonce → 200 round trip, wrong nonce, audience, issuer, and agent keys, both binding modes, tampered disclosures, `vct` mismatches, amounts, currencies and ISO 4217 minor units, payee, each supported constraint, pre-set values, expiry and staleness, reuse, direct and deeper chains, malformed input, and the HTTP header and MCP meta carriers.
 
-Not verified against chains produced by the AP2 Python SDK or any credential provider. To verify: run the AP2 SDK (`code/sdk/python`) to create an open Payment Mandate with only `amount_range` / `allowed_payees` / `execution_date` constraints and `cnf` set to an agent key, then a closed mandate with `kb_sd_jwt.create(..., aud=<your audience>, nonce=<quote nonce>)`, join with `~~`, and send it in `AP2-Mandate` alongside a real rail payment. Expect `200`, and `402 mandate_invalid:mandate_reused` on a second send.
+Not verified against chains produced by the AP2 Python SDK or any credential provider. To verify: run the AP2 SDK (`code/sdk/python`) to create an open Payment Mandate with only `amount_range` / `allowed_payees` / `execution_date` constraints and `cnf` set to an agent key, then a closed mandate with `kb_sd_jwt.create(..., aud=<your audience>, nonce=<nonce from the 402 body>)`, join with `~~`, and send it in `AP2-Mandate` alongside a real rail payment. Expect `200`, and `402 mandate_invalid:mandate_reused` on a second send.

@@ -73,7 +73,10 @@ export type MppTempoData = {
   readonly challengeId: string;
   readonly mode: TempoMode;
   readonly hash: string;
-  /** The signed transaction to broadcast (pull). A signed payment to this merchant, useless to anyone else. */
+  /**
+   * The signed transaction to broadcast (pull), kept so settlement survives a crash. `null` for push,
+   * and dropped by `redact` once a charge on the authorization is final.
+   */
   readonly transaction: string | null;
   /** Unix seconds (pull). */
   readonly validBefore: string | null;
@@ -252,6 +255,8 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
         if (!receipt.success) return { status: 'invalid', reason: 'transaction_reverted' };
         const sender = logsPay(receipt.logs, token, transfers);
         if (sender === undefined) return { status: 'invalid', reason: 'transfer_mismatch' };
+        // The transfer is final on-chain: core records the charge as settled before the handler, and
+        // because this rail cannot refund, a failed handler leaves it settled and reported.
         return {
           status: 'valid',
           proofId: challengeId,
@@ -260,6 +265,7 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
           limit: resolved.price,
           expiresAt: challengeExpires,
           data: { challengeId, mode: 'push', hash, transaction: null, validBefore: null },
+          settled: { reference: receipt.transactionHash, details: { mode: 'push', blockNumber: receipt.blockNumber } },
         };
       }
 
@@ -269,10 +275,12 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
     async settle(authorization, _charge, operation) {
       const data = tempoData(authorization);
       if (data.mode === 'push') {
-        // The transfer was verified on-chain before the handler ran; there is nothing left to submit.
+        // Push charges are recorded as settled at verification, so core never asks; the transfer is final.
         return { status: 'settled', reference: data.hash, details: { mode: 'push' } };
       }
+      // Redaction happens only once a charge is final, so a charge still being settled has the transaction.
       if (data.transaction === null) throw inconsistent(authorization);
+      const { transaction } = data;
 
       if (expired(data)) {
         const receipt = await getReceipt(rpc, data.hash, operation.signal);
@@ -280,7 +288,7 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
       }
 
       // Rebroadcasting the same signed bytes is idempotent: the network includes one transaction per nonce.
-      const answer = await rpcCall(rpc, 'eth_sendRawTransactionSync', [data.transaction], { signal: operation.signal, write: true });
+      const answer = await rpcCall(rpc, 'eth_sendRawTransactionSync', [transaction], { signal: operation.signal, write: true });
       const receipt = answer.ok ? parseReceipt(answer.result) : await getReceipt(rpc, data.hash, operation.signal);
       if (receipt === undefined) throw new TollstileError('PROVIDER_TIMEOUT', 'Tempo RPC returned a malformed receipt from eth_sendRawTransactionSync.');
       if (receipt !== null) {
@@ -298,8 +306,13 @@ export function mppTempo(options: MppTempoOptions): MppTempoRail {
     },
 
     release() {
-      // Pull: the signed transaction is simply never broadcast. Push: see README — the transfer stays.
+      // The signed transaction is simply never broadcast.
       return Promise.resolve();
+    },
+
+    redact(data) {
+      // Everything lookup needs (hash, validBefore) stays; the signed payment itself goes.
+      return { ...data, transaction: null };
     },
 
     async lookup(authorization, _charge, operation): Promise<LookupResult> {

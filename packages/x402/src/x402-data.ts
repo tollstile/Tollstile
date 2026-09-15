@@ -5,8 +5,9 @@ import type { PaymentRequirements, Scheme } from './payment-requirements';
  * What the ledger stores for a verified x402 payment. Settlement and reconciliation, possibly in
  * another process, work from this record alone.
  *
- * It includes the payer's signed payload, because settling after a crash needs it. That signature
- * can only move `authorizedAmount` of `asset` to `payTo` before `validBefore`.
+ * `paymentPayload` carries the payer's signature, which settling after a crash needs. It never
+ * appears in errors, events, or receipts, and `redact` replaces it and `paymentRequirements` with
+ * `null` once the charge is final; everything `lookup` uses stays.
  */
 export type X402Data = {
   readonly scheme: Scheme;
@@ -22,8 +23,8 @@ export type X402Data = {
   readonly authorizedAmount: string;
   /** The price `authorizedAmount` covers, in micro-units. upto settles at this quoted ratio. */
   readonly limitMicros: string;
-  /** The client's PaymentPayload, forwarded unchanged to `/settle`. */
-  readonly paymentPayload: JsonObject;
-  /** The requirements this server derived and verified against. */
-  readonly paymentRequirements: PaymentRequirements;
+  /** The client's PaymentPayload, forwarded unchanged to `/settle`. `null` once redacted. */
+  readonly paymentPayload: JsonObject | null;
+  /** The requirements this server derived and verified against. `null` once redacted. */
+  readonly paymentRequirements: PaymentRequirements | null;
 };

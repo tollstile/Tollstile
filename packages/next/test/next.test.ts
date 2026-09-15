@@ -119,6 +119,17 @@ describe('@tollstile/next', () => {
     expect(response.headers.get('payment-receipt')).toMatch(/^test_settlement_/);
   });
 
+  it('replaces the output with a fresh 402 when settlement is rejected', async () => {
+    const { toll, rail } = setup();
+    rail.simulate({ settle: 'reject' });
+    const handler = paid(toll.price('$0.01'), () => Response.json({ forecast: 'clear' }));
+    const response = await handler(new Request('http://localhost/weather', { headers: { payment: 'test proof=r1' } }), routeContext({}));
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ reason: 'settlement_rejected' });
+    expect(response.headers.get('payment-receipt')).toBeNull();
+  });
+
   it('passes the resolved principal to access policies', async () => {
     const { toll } = setup();
     const balance = memoryBalance({ acct_1: '$1' });

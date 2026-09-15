@@ -122,6 +122,7 @@ const ledger = postgresLedger({
 | `openAuthorization` | `INSERT … ON CONFLICT (id) DO NOTHING`, then `SELECT` | The id is derived from rail + proof, so a replayed proof finds the stored row. The second statement sees a row a concurrent insert just committed. |
 | `createCharge` | one transaction: lock the authorization (`FOR UPDATE`), check `exists` / `missing` / `expired` / `busy` / `insufficient`, insert the charge and its first history row, update `reserved` | The checks and the reservation happen under the authorization's row lock, so concurrent charges against it are serialized. A duplicate charge id returns `exists`. |
 | `transitionCharge` | one transaction: lock the authorization, compare-and-set `WHERE id = $1 AND payment = $2 AND fulfillment = $3`, append history, update `reserved` / `consumed` with core's `applyAccounting` | The compare-and-set runs in SQL as well, so even a writer that skipped the lock cannot be overwritten. A mismatch returns `{ status: 'conflict', charge }`. |
+| `replaceAuthorizationData` | one `UPDATE` of `data` and `updated_at` | Core calls it with the rail's `redact` output when a single-use charge becomes final, to drop evidence such as payer signatures. A missing id changes nothing. |
 | `pendingCharges` | `SELECT` on a partial index | The index condition is generated from core's `isChargeTerminal`, so finished charges are never scanned. |
 | `spendSince` | `SELECT … GROUP BY currency` on `(payer, created_at)` | Excludes `released`, `failed`, and `refunded`. |
 | `claim` | `INSERT … ON CONFLICT DO UPDATE … WHERE expires_at <= now RETURNING` | One statement: a live claim is untouched, an expired one is taken over. Of several concurrent claims of one key, one wins. |
@@ -135,7 +136,7 @@ const ledger = postgresLedger({
 | `tollstile_charge_transitions` | Append-only history. Version 1 is the creation; every transition adds a row in the same transaction. |
 | `tollstile_claims` | Single-use keys (nonces, replay windows) until `expires_at`. |
 
-Money is integer micros (`1 USD = 1,000,000`) in `bigint` with a currency code, never floating point. Amounts outside `0 … 2^63 − 1` are refused with `INVALID_AMOUNT`. Timestamps are `timestamptz`. JSON is `jsonb`.
+Money is integer micros (`1 USD = 1,000,000`) in `bigint` with a currency code, never floating point. Amounts outside `0 … 2^63 − 1` are refused with `INVALID_AMOUNT`, and an authorization holds one currency (its limit's, or what is already reserved or consumed on it): a charge or patched amount in another currency is refused with `CURRENCY_MISMATCH`, as in `memoryLedger`. Timestamps are `timestamptz`. JSON is `jsonb`.
 
 Useful queries:
 
@@ -155,8 +156,8 @@ DELETE FROM tollstile_claims WHERE expires_at < now() - interval '1 day';
 
 Tested in this repository:
 
-- The shared ledger conformance suite, run against both `memoryLedger` and `postgresLedger` on **PGlite 0.5.8** (PostgreSQL 17 compiled to WASM): every `createCharge` status, single-use busy versus a released retry, reusable capacity, compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
-- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
+- The shared ledger conformance suite, run against both `memoryLedger` and `postgresLedger` on **PGlite 0.5.8** (PostgreSQL 17 compiled to WASM): every `createCharge` status, single-use busy versus a released retry, reusable capacity, compare-and-set conflicts on both axes, accounting through settled, refunded, released, and `unknown` with each pending operation, patches, currency and amount refusals, `replaceAuthorizationData`, history rows, `pendingCharges`, `spendSince`, claim expiry, and amounts beyond 2^53 up to 2^63 − 1.
+- End-to-end flows through `createTollstile` with the test rail: quote round-trip, replay refusal, retry after a failed handler, signature redaction after settlement, settlement timeout → `unknown` → `reconcile()`, crash recovery, and credits on an unlimited authorization.
 - Rollback when a statement fails mid-transaction.
 
 Not verified:

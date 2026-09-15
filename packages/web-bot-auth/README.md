@@ -35,7 +35,7 @@ Signature-Input: sig1=("@authority" "@method" "@path" "signature-agent";key="sig
 Signature: sig1=:…:
 ```
 
-Otherwise the response is `403` with `{ "error": "requirement_failed", "requirement": "verified-agent", "reason": "…" }`.
+Otherwise the response is `403` with `{ "error": "requirement_failed", "requirement": "verified-agent", "reason": "…" }`, or `503` with reason `directory_unavailable` when the agent's key directory cannot be reached right now.
 
 ## Options
 
@@ -46,7 +46,7 @@ Otherwise the response is `403` with `{ "error": "requirement_failed", "requirem
 | `clockSkewMs` | `5000` | Tolerance applied to `created`, `expires`, and the maximum age. |
 | `requireNonce` | `false` | Reject signatures without a `nonce`. Nonces that are present are always single-use. |
 | `cacheTtlMs` | `3600000` | Longest a directory is reused. A shorter `Cache-Control: max-age` wins, but never below one minute. |
-| `timeoutMs` | `3000` | Upper bound for one directory fetch, including the body. |
+| `timeoutMs` | `3000` | Upper bound for one directory fetch, including the body. The fetch is also aborted when Tollstile's `providerTimeoutMs` elapses (`input.signal`). |
 | `fetch` | global `fetch` | Inject for tests or egress proxies. |
 
 ## What is checked
@@ -71,15 +71,17 @@ In this order, for each signature whose `tag` is `web-bot-auth` (the first that 
 | `signature_agent_missing` / `signature_agent_not_covered` / `signature_agent_malformed` / `signature_agent_unsupported` | The Signature-Agent member cannot be attributed. |
 | `signature_base_invalid` | A covered component cannot be derived from the request. |
 | `agent_untrusted` | The origin is not in `trust`. Nothing was fetched. |
-| `directory_unavailable` | Discovery failed and nothing usable is cached. |
+| `directory_unavailable` (**503**) | The directory could not be reached — network or TLS error, timeout (`timeoutMs` or the provider timeout), or a 5xx — and nothing usable is cached. The request is unverified, not forbidden; retry later. |
+| `directory_invalid` | The directory answered, but not with a usable directory: a redirect, another non-200 status, over 64 KiB, more than 32 keys, or malformed JSON. The operator has to fix it. |
 | `key_not_found` / `algorithm_mismatch` / `signature_invalid` | Key selection or cryptographic verification failed. |
 | `nonce_missing` / `nonce_replayed` | Replay protection. |
 
 ## Directory discovery
 
-- `GET https://<origin>/.well-known/http-message-signatures-directory` with `redirect: "manual"`; only `200` is accepted. Bodies over 64 KiB, more than 32 keys, or malformed JSON are discovery failures. Unsupported or malformed key entries are skipped.
-- Concurrent requests for the same origin share one fetch. At most 1,024 directories are cached.
-- A directory that resolves replaces the cached one, so a removed key stops verifying. A failed fetch is not evidence: the cached directory keeps verifying for up to 24 hours past its expiry, and the origin is not retried for 30 seconds.
+- `GET https://<origin>/.well-known/http-message-signatures-directory` with `redirect: "manual"`; only `200` is accepted. Unreachable directories and 5xx are `directory_unavailable` (503); redirects, other statuses, bodies over 64 KiB, more than 32 keys, or malformed JSON are `directory_invalid` (403). Unsupported or malformed key entries are skipped.
+- Unavailability is returned as `{ ok: false, status: 503 }` rather than thrown as `PROVIDER_UNAVAILABLE`, so the response keeps the specific reason; either way nothing is reserved.
+- Concurrent requests for the same origin share one fetch, bounded by the signal of the request that started it. At most 1,024 directories are cached.
+- A directory that resolves replaces the cached one, so a removed key stops verifying. A failed fetch of either kind is not evidence: the cached directory keeps verifying for up to 24 hours past its expiry, and the origin is not retried for 30 seconds.
 - The cache and in-flight fetches are per `verifiedAgent()` instance and per process.
 
 ## Deployment notes
@@ -94,7 +96,7 @@ Tested with Vitest (Node 22 WebCrypto) against:
 
 - RFC 9421 Appendix B.2.6 (ed25519), B.2.2 and B.2.3 (rsa-pss-sha512, including `@query-param` and `@query`), and the §2.2.8 query encoding examples — signature bases rebuilt byte for byte and signatures verified.
 - draft-ietf-webbotauth-httpsig-protocol-00 Appendix E.1.1, E.1.2, E.2.1, and E.2.2 (Dictionary and legacy Signature-Agent, ed25519 and rsa-pss-sha512).
-- Full requirement flows through `createTollstile` with `testRail()`, fake directories via injected `fetch`, and freshly generated ed25519, P-256, and RSA-PSS keys: untrusted origins never fetched, redirects and non-200 refused, size and key-count caps, stale-on-failure caching, `max-age` handling, fetch coalescing, nonce replay, and MCP fail-closed.
+- Full requirement flows through `createTollstile` with `testRail()`, fake directories via injected `fetch`, and freshly generated ed25519, P-256, and RSA-PSS keys: untrusted origins never fetched, redirects and non-200 refused, size and key-count caps, 503 for unreachable, 5xx, `timeoutMs`, and provider-timeout (`input.signal`) failures, stale-on-failure caching and its 24-hour limit, `max-age` handling, fetch coalescing, nonce replay, and MCP fail-closed.
 
 Not verified against a live agent. To verify: sign a request with Cloudflare's reference signer ([`web-bot-auth`](https://github.com/cloudflare/web-bot-auth), `sign()` with `signatureAgentKey`), host its JWKS at `https://<your-agent>/.well-known/http-message-signatures-directory`, trust that origin, and call your endpoint — expect `200`; change one covered header and expect `403 signature_invalid`.
 

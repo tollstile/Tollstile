@@ -103,11 +103,12 @@ Invalid config (price format, recipient address, network, missing or weak secret
 - **Write-ahead transitions.** Record the intended state (`settling`, `refund_pending`) before calling a provider, and the result after. Recovery reads the ledger, never in-memory state.
 - **Idempotency keys come from the charge.** A repeated call with the same key returns the recorded result.
 - **`unknown` is a state.** A timeout or ambiguous provider response becomes `unknown`, resolved only by `lookup`. Never assume success or failure.
-- **Quotes fix prices.** A proof carrying a quote is charged at the quoted price. Quotes are signed and never stored.
+- **Quotes fix prices and bind requests.** A single-use proof carrying a quote is charged at the quoted price and must match the quote's request commitment. Quotes are signed and never stored.
 - **Flows are explicit.** `authorization` or `upfront`, declared by rails and chosen per route; `escrow` is refused until implemented.
 - **Fulfillment is defined, not inferred.** Default: handler completed successfully. `payment.fulfill()` marks it explicitly. Response delivery is not fulfillment.
 - **Time is injected.** Use the `clock` from context; never call `Date.now()` directly in `core` or `rails`. Expiry checks must be testable.
-- **Secrets never leave memory.** Never log, serialize, or include in errors: private keys, API keys, raw payment payloads, signatures.
+- **Secrets never leave memory.** Never log, include in errors, events, or receipts: private keys, API keys, raw payment payloads, signatures, bearer tokens.
+- **Payer evidence is stored only while it is needed.** A rail may keep a signed payload in authorization `data` when settlement after a crash needs it. It must implement `redact` so the evidence is dropped once the charge is final, keeping only what `lookup` and `refund` need. Bearer tokens that can pay again (e.g. an SPT) never reach the ledger.
 - **Constant-time comparison** for any secret or signature comparison.
 
 ---

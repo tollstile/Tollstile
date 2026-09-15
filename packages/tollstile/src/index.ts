@@ -51,6 +51,7 @@ export type {
   PriceInput,
   PriceOptions,
   Commitment,
+  Completion,
   Principal,
   Quote,
   Rail,

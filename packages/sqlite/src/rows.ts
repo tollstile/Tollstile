@@ -67,14 +67,20 @@ export function parseStatus<T extends string>(row: SqliteRow | undefined, values
   return oneOf(row, 'status', values);
 }
 
+export function isStorable(amount: Money): boolean {
+  return amount.micros >= 0n && amount.micros <= MAX_INTEGER;
+}
+
+export function unstorable(amount: Money): TollstileError {
+  return new TollstileError(
+    'INVALID_AMOUNT',
+    `Amount of ${amount.micros.toString()} ${amount.currency} micros cannot be stored: the ledger holds 0 to ${MAX_INTEGER.toString()} micros.`,
+  );
+}
+
 /** Money is bound as decimal text and cast to INTEGER in SQL, so no driver converts it through a float. */
 export function microsParam(amount: Money): string {
-  if (amount.micros < 0n || amount.micros > MAX_INTEGER) {
-    throw new TollstileError(
-      'INVALID_AMOUNT',
-      `Amount of ${amount.micros.toString()} ${amount.currency} micros cannot be stored: the ledger holds 0 to ${MAX_INTEGER.toString()} micros.`,
-    );
-  }
+  if (!isStorable(amount)) throw unstorable(amount);
   return amount.micros.toString();
 }
 

@@ -35,9 +35,10 @@ describe('x402 V2 conformance with @x402/core', () => {
     const entry = await gate.enter(httpContext(request));
     if (entry.kind !== 'admitted') throw new Error(`expected admission, got ${JSON.stringify(entry.denial.body)}`);
     if (typeof price !== 'string') await entry.pass.payment.fulfill({ amount: '$0.05' });
-    const receipt = await entry.pass.complete('succeeded');
+    const { settlement, receipt } = await entry.pass.complete('succeeded');
+    expect(settlement).toBe('settled');
 
-    const response = decodePaymentResponseHeader(receipt.headers.find(([name]) => name === 'payment-response')?.[1] ?? '');
+    const response = decodePaymentResponseHeader(receipt.headers.find(([name]: readonly [string, string]) => name === 'payment-response')?.[1] ?? '');
     expect(response).toMatchObject({ success: true, network: 'eip155:84532', transaction: expect.stringMatching(/^0x/) as unknown });
     expect(response.amount).toBe(typeof price === 'string' ? '10000' : '50000');
   });

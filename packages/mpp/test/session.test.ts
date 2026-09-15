@@ -147,7 +147,7 @@ describe('mppTempoSession verification failures', () => {
     expect((await get(gate, { authorization: voucher(challenge, 10_000n, { signer: wallet() }) })).body.reason).toBe('signature_invalid');
     expect((await get(gate, { authorization: voucher(challenge, 10_000n, { descriptor: { ...descriptor, payee: wallet().address } }) })).body.reason).toBe('channel_terms_mismatch');
     expect((await get(gate, { authorization: voucher(challenge, 10_000n, { descriptor: { ...descriptor, salt: random32() } }) })).body.reason).toBe('channel_id_mismatch');
-    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { channel: `${channel.slice(0, -1)}0` }) })).body.reason).toMatch(/channel_id_mismatch|signature_invalid/);
+    expect((await get(gate, { authorization: voucher(challenge, 10_000n, { channel: `${channel.slice(0, -1)}${channel.endsWith('0') ? '1' : '0'}` }) })).body.reason).toMatch(/channel_id_mismatch|signature_invalid/);
     expect((await get(gate, { authorization: authorization(challenge, { action: 'open', type: 'transaction' }) })).body.reason).toBe('session_action_unsupported');
   });
 

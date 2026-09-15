@@ -1,7 +1,7 @@
 import { TollstileError } from './errors';
 import { callProvider } from './provider-call';
 import type { QuoteSigner } from './quote';
-import { assertChargeTransition, type ChargeStates, type FulfillmentState } from './states';
+import { assertChargeTransition, isChargeTerminal, type ChargeStates, type FulfillmentState } from './states';
 import type {
   Authorization,
   Balance,
@@ -14,6 +14,7 @@ import type {
   Rail,
   RefundResult,
   SettleResult,
+  Settlement,
   TollstileEvent,
   TransitionResult,
 } from './types';
@@ -32,6 +33,8 @@ export type Runtime = {
 /** What performs a charge's economic operations: a rail, or a policy's balance. */
 export type Executor = {
   readonly name: string;
+  /** Rails declare this; policy balances never refund because they settle only after fulfillment. */
+  readonly capabilities?: { readonly refund: boolean };
   settle(authorization: Authorization, charge: Charge, operation: Operation): Promise<SettleResult>;
   refund(authorization: Authorization, charge: Charge, operation: Operation): Promise<RefundResult>;
   release(authorization: Authorization, charge: Charge, operation: Operation): Promise<void>;
@@ -44,8 +47,19 @@ export async function tryMove(runtime: Runtime, charge: Charge, to: ChargeStates
   const from: ChargeStates = { payment: charge.payment, fulfillment: charge.fulfillment };
   assertChargeTransition(from, to);
   const result = await runtime.ledger.transitionCharge(charge.id, from, to, runtime.clock.now(), patch);
-  if (result.status === 'moved') runtime.emit({ type: 'charge.moved', charge: result.charge, from });
+  if (result.status !== 'moved') return result;
+  runtime.emit({ type: 'charge.moved', charge: result.charge, from });
+  // A released single-use proof can be presented again, so its evidence is kept until money is final.
+  if (!isChargeTerminal(from) && isChargeTerminal(to) && to.payment !== 'released') await redact(runtime, result.authorization);
   return result;
+}
+
+/** Drops rail data a finished single-use authorization no longer needs. Not atomic with the move: a crash leaves the data in place. */
+async function redact(runtime: Runtime, authorization: Authorization): Promise<void> {
+  if (authorization.kind !== 'single') return;
+  const rail = runtime.rails.find((candidate) => candidate.name === authorization.rail);
+  if (rail?.redact === undefined) return;
+  await runtime.ledger.replaceAuthorizationData(authorization.id, rail.redact(authorization.data), runtime.clock.now());
 }
 
 /** For a live request, a conflict means another process changed the charge. Surface it. */
@@ -100,6 +114,12 @@ export async function settleCharge(
     { pending: null, settlement: { reference: call.value.reference, details: call.value.details } },
   );
   return { status: 'settled', ...settled };
+}
+
+/** Records a payment that already moved during verification. */
+export async function recordSettled(runtime: Runtime, current: Current, settlement: Settlement): Promise<Current> {
+  const settling = await move(runtime, current.charge, { payment: 'settling', fulfillment: 'pending' }, { pending: 'settle' });
+  return move(runtime, settling.charge, { payment: 'settled', fulfillment: 'running' }, { pending: null, settlement });
 }
 
 export async function refundCharge(

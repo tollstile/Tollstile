@@ -50,12 +50,16 @@ export async function call<Rails extends readonly Rail[]>(gate: Gate<Rails>, opt
 
   if (options.readBody !== undefined) options.readBody(await request.text());
   const outcome = options.handler === undefined ? 'succeeded' : await options.handler(entry.pass.payment);
-  const receipt = await entry.pass.complete(outcome);
+  const completion = await entry.pass.complete(outcome);
+  if (completion.denial !== null) {
+    const response = toResponse(completion.denial);
+    return { status: response.status, body: (await response.json()) as Record<string, unknown>, headers: response.headers, handlerRuns: 1 };
+  }
   const responseHeaders = new Headers();
-  for (const [name, value] of receipt.headers) responseHeaders.append(name, value);
+  for (const [name, value] of completion.receipt.headers) responseHeaders.append(name, value);
   return {
     status: outcome === 'succeeded' ? 200 : 500,
-    body: { via: entry.pass.payment.via, meta: receipt.meta },
+    body: { via: entry.pass.payment.via, meta: completion.receipt.meta, settlement: completion.settlement },
     headers: responseHeaders,
     handlerRuns: 1,
   };

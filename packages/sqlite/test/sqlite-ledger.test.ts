@@ -125,18 +125,6 @@ describe('sqliteLedger', () => {
     expect(await ledger.getAuthorization('auth_1')).toMatchObject({ reserved: money('USD', 0n), consumed: money('USD', 7_000n) });
   });
 
-  it('refuses amounts a 64-bit INTEGER cannot hold', async () => {
-    const clock = fakeClock();
-    const ledger = ledgerFor(clock);
-    await ledger.openAuthorization({ ...authorization(clock.now()), limit: null });
-
-    await expect(ledger.createCharge({ ...newCharge(clock.now()), amount: money('USD', 9_223_372_036_854_775_808n) })).rejects.toMatchObject({
-      code: 'INVALID_AMOUNT',
-    });
-    await expect(ledger.createCharge({ ...newCharge(clock.now()), amount: money('USD', -1n) })).rejects.toMatchObject({ code: 'INVALID_AMOUNT' });
-    expect(await ledger.getCharge('chg_1')).toBeUndefined();
-  });
-
   it('fails instead of storing a total that overflows into REAL', async () => {
     const clock = fakeClock();
     const ledger = ledgerFor(clock);
@@ -147,22 +135,6 @@ describe('sqliteLedger', () => {
     await expect(ledger.createCharge({ ...newCharge(clock.now(), 'chg_2'), amount: money('USD', 1n) })).rejects.toThrow('cannot store REAL value in INTEGER column');
     expect(await ledger.getCharge('chg_2')).toBeUndefined();
     expect((await ledger.getAuthorization('auth_1'))?.reserved).toEqual(money('USD', max));
-  });
-
-  it('refuses to change a charge to another currency, and writes nothing', async () => {
-    const clock = fakeClock();
-    const db = database();
-    const ledger = ledgerFor(clock, nodeSqlite(db));
-    await ledger.openAuthorization(authorization(clock.now()));
-    await ledger.createCharge(newCharge(clock.now()));
-
-    await expect(
-      ledger.transitionCharge('chg_1', { payment: 'reserved', fulfillment: 'running' }, { payment: 'settling', fulfillment: 'completed' }, clock.now(), {
-        amount: money('EUR', 1_000n),
-      }),
-    ).rejects.toMatchObject({ code: 'CURRENCY_MISMATCH' });
-    expect(await ledger.getCharge('chg_1')).toMatchObject({ payment: 'reserved', amount: money('USD', 10_000n) });
-    expect(history(db, 'chg_1')).toHaveLength(1);
   });
 
   it('rolls back every statement of a transaction when one fails', async () => {
@@ -290,10 +262,11 @@ describe('with createTollstile', () => {
     const entry = await gate.enter(context);
     if (entry.kind === 'denied') {
       const response = toResponse(entry.denial);
-      return { status: response.status, body: (await response.json()) as Record<string, unknown>, chargeId: undefined };
+      return { status: response.status, body: (await response.json()) as Record<string, unknown>, chargeId: undefined, completion: undefined };
     }
-    await entry.pass.complete(outcome);
-    return { status: outcome === 'succeeded' ? 200 : 500, body: {} as Record<string, unknown>, chargeId: entry.pass.payment.chargeId ?? undefined };
+    const completion = await entry.pass.complete(outcome);
+    const status = completion.denial?.status ?? (outcome === 'succeeded' ? 200 : 500);
+    return { status, body: {} as Record<string, unknown>, chargeId: entry.pass.payment.chargeId ?? undefined, completion };
   }
 
   it('pays with the quote it was offered, then refuses a replay', async () => {
@@ -308,6 +281,30 @@ describe('with createTollstile', () => {
 
     expect(await call(gate, 'test proof=p1')).toMatchObject({ status: 402, body: { reason: 'proof_already_used' } });
     expect(rail.effects.settlements).toBe(1);
+  });
+
+  it('drops the payer signature from a single-use authorization once its charge settled', async () => {
+    const { toll, ledger } = setup();
+    const result = await call(toll.price('$0.01'), 'test proof=p1 signature=0xsig');
+
+    expect(result.completion).toMatchObject({ settlement: 'settled', denial: null });
+    const charge = await ledger.getCharge(result.chargeId ?? '');
+    expect(charge).toMatchObject({ payment: 'settled', fulfillment: 'completed' });
+    expect((await ledger.getAuthorization(charge?.authorizationId ?? ''))?.data).toEqual({ proofId: 'p1', payer: 'test-payer' });
+  });
+
+  it('keeps the signature while settlement is unknown, and drops it once reconciliation settles', async () => {
+    const { toll, rail, ledger, clock } = setup();
+    rail.simulate({ settle: 'timeout-after-effect' });
+    const result = await call(toll.price('$0.01'), 'test proof=p1 signature=0xsig');
+    const authorizationId = (await ledger.getCharge(result.chargeId ?? ''))?.authorizationId ?? '';
+
+    expect(result.completion).toMatchObject({ settlement: 'unknown' });
+    expect((await ledger.getAuthorization(authorizationId))?.data).toMatchObject({ signature: '0xsig' });
+    rail.simulate({});
+    clock.advance(60_000);
+    await toll.reconcile({ olderThanMs: 1_000 });
+    expect((await ledger.getAuthorization(authorizationId))?.data).toEqual({ proofId: 'p1', payer: 'test-payer' });
   });
 
   it('accepts the same proof again after the handler failed, and settles once', async () => {

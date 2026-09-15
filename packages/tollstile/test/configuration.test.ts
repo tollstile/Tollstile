@@ -74,7 +74,8 @@ describe('mcp context', () => {
       .enter(mcpContext('weather', { 'tollstile/test-payment': 'test proof=p1' }));
     if (entry.kind !== 'admitted') throw new Error('expected admission');
 
-    const receipt = await entry.pass.complete('succeeded');
+    const { receipt, settlement } = await entry.pass.complete('succeeded');
+    expect(settlement).toBe('settled');
     expect(receipt.headers).toEqual([]);
     expect(Object.keys(receipt.meta)).toEqual(['tollstile/test-receipt']);
   });
