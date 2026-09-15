@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/ap2",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Experimental: require AP2 user mandates, so an agent can only pay with a user-signed authorization bound to your quote. A Tollstile requirement.",
   "keywords": [
     "ap2",

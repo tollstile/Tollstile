@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/web-bot-auth",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Allow only verified AI agents: verify Web Bot Auth HTTP message signatures (RFC 9421) before an agent can pay or access a route. A Tollstile requirement.",
   "keywords": [
     "web-bot-auth",

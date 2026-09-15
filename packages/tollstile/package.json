@@ -1,6 +1,6 @@
 {
   "name": "tollstile",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Open-source payment middleware for APIs, MCP tools, and AI agents. Accept x402 and MPP payments with subscriptions, credits, spend limits, refunds, and a merchant-owned ledger.",
   "keywords": [
     "x402",
