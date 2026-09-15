@@ -55,6 +55,19 @@ importers:
         specifier: 4.131.2
         version: 4.131.2(@types/node@22.20.2)
 
+  examples/custom-rail:
+    dependencies:
+      tollstile:
+        specifier: workspace:^
+        version: link:../../packages/tollstile
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.2
+      tsx:
+        specifier: 4.23.13
+        version: 4.23.13
+
   examples/express:
     dependencies:
       '@tollstile/express':

@@ -72,9 +72,13 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 | [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
 | [`create-tollstile`](./packages/create-tollstile) | Project generator | Tested |
 
+## Build a rail
+
+Any payment protocol or provider can be added without touching core: write it with `createRail()`, test it against a fake provider, and prove it with `railConformance()`. Start from [`examples/custom-rail`](./examples/custom-rail) and the [Build a rail](https://tollstile.com/docs/rails/build-a-rail) guide. Published rails can be listed on [Community rails](https://tollstile.com/docs/rails/community).
+
 ## Contributing
 
-Read [PHILOSOPHY.md](./PHILOSOPHY.md), [SPEC.md](./SPEC.md) (the internal contract every rail, ledger, and adapter follows), [DESIGN.md](./DESIGN.md), and [CODING_RULES.md](./CODING_RULES.md). Run `pnpm check` (Node 22).
+See [CONTRIBUTING.md](./CONTRIBUTING.md): development setup, what reviews expect, and how rails are shipped — in your own app, as a community rail, or as an official `@tollstile/*` rail. Report vulnerabilities privately per [SECURITY.md](./SECURITY.md).
 
 ## License
 

@@ -1,0 +1,46 @@
+name: Propose an official rail
+description: Propose adding a rail to this repository as @tollstile/<name>. Read CONTRIBUTING.md first.
+labels: [rail, proposal]
+body:
+  - type: markdown
+    attributes:
+      value: "Official rails carry Tollstile's name. Most rails should start as community rails. Acceptance criteria: https://github.com/tollstile/tollstile/blob/main/CONTRIBUTING.md#3-as-an-official-tollstile-rail"
+  - type: input
+    id: protocol
+    attributes:
+      label: Protocol or provider, with a link to its specification or API reference
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: Who uses it today
+      description: Merchants, clients, or agents paying with it, and how many where known.
+    validations:
+      required: true
+  - type: input
+    id: community
+    attributes:
+      label: Existing community rail, if any
+      placeholder: "tollstile-rail-acme (link)"
+  - type: input
+    id: maintainer
+    attributes:
+      label: Maintainer
+      description: The GitHub handle who will answer issues for this rail and be added to CODEOWNERS.
+    validations:
+      required: true
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: Capabilities
+      description: flows, single or reusable authorization, variable amounts, quotes, refunds, lookup — and why.
+    validations:
+      required: true
+  - type: textarea
+    id: core
+    attributes:
+      label: Core changes needed
+      description: None, or the capability or optional hook the protocol needs. Protocol-specific branches in core are not accepted.
+    validations:
+      required: true

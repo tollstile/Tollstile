@@ -17,14 +17,18 @@ import { API_KEY, base64url, createIssuer, fakeSkyfire, SANDBOX_API, SANDBOX_ISS
 
 type Result = { readonly status: number; readonly body: Record<string, unknown>; readonly headers: Headers; readonly handlerRuns: number };
 
-async function setup(options: { readonly rail?: Partial<KyapayOptions>; readonly pageSize?: number } = {}) {
+/**
+ * Provider calls get a generous timeout so crypto and fake-network work never time out on a loaded
+ * machine; tests that simulate a hanging Skyfire pass a short one so the hang resolves quickly.
+ */
+async function setup(options: { readonly rail?: Partial<KyapayOptions>; readonly pageSize?: number; readonly providerTimeoutMs?: number } = {}) {
   const clock = fakeClock();
   const issuer = await createIssuer(SANDBOX_ISSUER);
   const skyfire = fakeSkyfire({ clock, issuers: [issuer], ...(options.pageSize === undefined ? {} : { pageSize: options.pageSize }) });
   const rail = kyapay({ environment: 'sandbox', sellerId: SELLER_ID, serviceId: SERVICE_ID, apiKey: API_KEY, fetch: skyfire.fetch, clock, ...options.rail });
   const ledger = memoryLedger({ clock });
   const events: TollstileEvent[] = [];
-  const toll = createTollstile({ rails: [rail], ledger, clock, secret: 's'.repeat(32), providerTimeoutMs: 50, onEvent: (event) => events.push(event) });
+  const toll = createTollstile({ rails: [rail], ledger, clock, secret: 's'.repeat(32), providerTimeoutMs: options.providerTimeoutMs ?? 5_000, onEvent: (event) => events.push(event) });
 
   const nowSeconds = () => Math.floor(clock.now().getTime() / 1000);
   const claims = (overrides: Record<string, unknown> = {}) => ({
@@ -404,7 +408,7 @@ describe('settlement', () => {
   });
 
   it('times out after Skyfire charged, then reconciles to settled without charging again', async () => {
-    const { toll, call, token, skyfire, clock, charges, errors, posts } = await setup();
+    const { toll, call, token, skyfire, clock, charges, errors, posts } = await setup({ providerTimeoutMs: 500 });
     skyfire.simulate({ charge: 'hang-after-effect' });
     const result = await call(toll.price('$0.01'), { token: await token() });
 
@@ -423,7 +427,7 @@ describe('settlement', () => {
   });
 
   it('times out before Skyfire charged, then reconciles by charging once', async () => {
-    const { toll, call, token, skyfire, clock, charges, posts } = await setup();
+    const { toll, call, token, skyfire, clock, charges, posts } = await setup({ providerTimeoutMs: 500 });
     skyfire.simulate({ charge: 'hang-before-effect' });
     await call(toll.price('$0.01'), { token: await token() });
 
@@ -436,7 +440,7 @@ describe('settlement', () => {
   });
 
   it('leaves the charge unknown while Skyfire cannot list charges', async () => {
-    const { toll, call, token, skyfire, clock, charges } = await setup();
+    const { toll, call, token, skyfire, clock, charges } = await setup({ providerTimeoutMs: 500 });
     skyfire.simulate({ charge: 'hang-after-effect' });
     await call(toll.price('$0.01'), { token: await token() });
 

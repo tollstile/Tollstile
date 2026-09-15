@@ -1,0 +1,16 @@
+{
+  "name": "@tollstile-examples/custom-rail",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx src/demo.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "4.23.13"
+  }
+}

@@ -15,6 +15,11 @@ coverage/
 .env.*
 !.env.example
 
+# Local databases (e.g. examples/hono's SQLite ledger)
+*.db
+*.db-shm
+*.db-wal
+
 # OS
 .DS_Store
 

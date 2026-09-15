@@ -1,0 +1,38 @@
+name: Bug report
+description: Something behaves differently from the docs or SPEC.md.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Security problems go to a private advisory, not here: https://github.com/tollstile/tollstile/security/advisories/new"
+  - type: input
+    id: packages
+    attributes:
+      label: Packages and versions
+      placeholder: "tollstile 0.1.1, @tollstile/x402 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+      description: Include the denial body (`error.code`, `error.detail`) or charge states if relevant. Remove secrets and payment tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest route and rail setup that shows it. A failing test with the test rail is ideal.
+    validations:
+      required: true
+  - type: dropdown
+    id: money
+    attributes:
+      label: Could this move money incorrectly?
+      options:
+        - "No"
+        - "Yes: something settled, refunded, or was admitted when it should not have been"
+        - "Not sure"
+    validations:
+      required: true

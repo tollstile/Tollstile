@@ -1,0 +1,61 @@
+name: Release
+
+# Push a tag like v0.1.1 whose version matches every package. See RELEASING.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Check and publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance and trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing (OIDC) needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build
+      - run: node scripts/release/check-release.mjs --tag "$GITHUB_REF_NAME"
+      - run: scripts/release/pack-smoke.sh
+      # pnpm publishes in dependency order (tollstile before @tollstile/*) and skips versions already
+      # on npm, so a failed run can be re-run safely.
+      - name: Publish
+        run: pnpm -r --filter './packages/*' publish --access public --no-git-checks
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+          # Empty when trusted publishing is configured for every package on npmjs.com.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  verify:
+    name: Install the published release
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wait until every package is on npm
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if node scripts/release/check-release.mjs --registry; then exit 0; fi
+            echo "Not visible yet (attempt $attempt); waiting 30 s"
+            sleep 30
+          done
+          exit 1
+      - name: Install from npm and run the smoke test
+        run: scripts/release/pack-smoke.sh "${GITHUB_REF_NAME#v}"
