@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/kyapay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "KYAPay payments for APIs and MCP tools: verify Skyfire pay tokens and charge per call. A Tollstile rail.",
   "keywords": [
     "kyapay",

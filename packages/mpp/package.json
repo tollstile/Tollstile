@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/mpp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Machine Payments Protocol (MPP) for APIs and MCP tools: Stripe and Tempo charges with WWW-Authenticate: Payment challenges and receipts. A Tollstile rail.",
   "keywords": [
     "mpp",
