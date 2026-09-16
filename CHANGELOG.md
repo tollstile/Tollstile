@@ -25,7 +25,7 @@ The first installable release: `@tollstile/*` 0.1.0 depended on `tollstile`, whi
 
 ### Verified
 
-- Against real providers in test environments: x402 `exact` on Base Sepolia with a USDC transfer, and MPP Stripe in Stripe test mode — each including retries, refunds, and reconciliation.
+- Against real providers in test environments: x402 on Base Sepolia, with a USDC transfer, and MPP's Stripe rail in Stripe test mode — each including retries, refunds, and reconciliation.
 - PostgreSQL under real concurrency in CI: 100 concurrent requests with the same proof, 100 retries with the same idempotency key, 100 charges against one limit, concurrent reconcile workers, and recovery after a crash.
 - Against shipping MCP clients, on the live demo: Claude Code 2.1.186 renders an approval as an Accept / Decline dialog, and accepting settled the charge; OpenAI's `codex-mcp-client` declares `elicitation.url` and opens the checkout page; a client that declares neither is told in the text its model reads. What each client declares is published at [demo.tollstile.com/api/clients](https://demo.tollstile.com/api/clients).
 - Throughput of one payer's hot authorization row, measured rather than argued about: ~57 charges/second against one reusable authorization on PostgreSQL 16, ~357/second spread across payers, every charge correct in both. `packages/postgres/test/throughput.bench.test.ts`.

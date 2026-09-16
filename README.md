@@ -42,7 +42,7 @@ curl -i -H "Payment: test" localhost:3000/weather   # 200 OK + receipt
 
 The handler you already had, with a price in front of it. Same two lines on [Express](./packages/express), [Hono](./packages/hono), [any `fetch` handler](./packages/fetch), and [MCP tools](./packages/mcp).
 
-> **Early Access.** Tollstile is available for public evaluation. x402 `exact` and MPP Stripe have been verified against real providers in test environments — Base Sepolia and Stripe test mode — including retries, refunds, and reconciliation. KYAPay, x402 `upto`, AP2, and the MPP Tempo intents are tested against fakes and published vectors, and remain experimental or need provider access.
+> **Early Access.** Tollstile is available for public evaluation. x402 and MPP's Stripe rail have been verified against real providers in test environments, on Base Sepolia and in Stripe test mode, including retries, refunds, and reconciliation. KYAPay, AP2, x402's `upto` scheme, and MPP's Tempo rails are tested against fakes and published vectors, and remain experimental or need provider access.
 
 ## Prompt your coding agent
 
@@ -76,7 +76,7 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 | [`@tollstile/hono`](./packages/hono) · [`express`](./packages/express) · [`next`](./packages/next) · [`fetch`](./packages/fetch) | HTTP adapters | Tested |
 | [`@tollstile/mcp`](./packages/mcp) | Paid MCP tools | Tested with the MCP SDK |
 | [`@tollstile/proxy`](./packages/proxy) | A paid gateway in front of any HTTP API or MCP server — Python (FastAPI, MCP SDK), Go, Rails | Tested end to end in front of FastAPI and the MCP Python SDK |
-| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | x402 `exact` (Base Sepolia) and MPP Stripe (test mode) verified against real providers; the rest against fakes and vectors |
+| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | x402 (Base Sepolia) and MPP's Stripe rail (test mode) verified against real providers; the rest against fakes and vectors |
 | [`@tollstile/postgres`](./packages/postgres) · [`sqlite`](./packages/sqlite) | Ledgers | Shared conformance suite |
 | [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
 | [`create-tollstile`](./packages/create-tollstile) | Project generator | Tested |
