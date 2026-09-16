@@ -14,6 +14,10 @@ The first installable release: `@tollstile/*` 0.1.0 depended on `tollstile`, whi
 - **`@tollstile/mcp` — approval**: `paidTool(..., { approval })` asks the person at the client to accept the amount before the call is charged, over MCP elicitation. Only `accept` charges; declined, dismissed, unanswered, and "this client cannot be asked" all release the reservation and answer `access_denied`. See [Approval](https://tollstile.com/docs/adapters/mcp#approval).
 - **`@tollstile/mcp` — checkout**: `paidTool(..., { checkout })` answers a denial the agent cannot act on — out of credit, no subscription — with a page for the person. It uses the richest channel the client has: a URL elicitation, a form the client puts on screen, or the text the model reads. See [Checkout](https://tollstile.com/docs/adapters/mcp#checkout).
 
+### Hardened
+
+- **A request cannot choose how much work its rejection costs.** Answering `402` reads the body on dynamic routes, signs a quote, and may have a rail contact its provider — all before anyone has paid. A body larger than `maxRequestBytes` (1 MiB by default, configurable) is now refused before any of that, and a quote token longer than 8 KiB is refused before it is hashed. [SECURITY.md](./SECURITY.md) says what Tollstile bounds here and what belongs in front of it.
+
 ### Fixed
 
 - `reconcile()` no longer aborts when another worker moves a charge first; the charge is left to that worker and the run continues. Verified with two concurrent workers on PostgreSQL.
