@@ -129,7 +129,10 @@ describe('exact', () => {
     const [accepted] = paymentRequired.accepts;
     if (accepted === undefined) throw new Error('expected an offer');
     const token = accepted.extra.tollstileQuote ?? '';
-    const tampered = { ...accepted, extra: { ...accepted.extra, tollstileQuote: `${token.slice(0, -2)}${token.endsWith('A') ? 'B' : 'A'}${token.slice(-1)}` } };
+    // Change the character being replaced, not the one after it: when they differed, the "tampered"
+    // quote was the original, and this passed a valid quote through about one run in sixty-five.
+    const at = token.length - 2;
+    const tampered = { ...accepted, extra: { ...accepted.extra, tollstileQuote: `${token.slice(0, at)}${token[at] === 'A' ? 'B' : 'A'}${token.slice(at + 1)}` } };
 
     const forged = await call(gate, { payment: sign(tampered, clock.now()) });
     clock.advance(5 * 60_000 + 1);

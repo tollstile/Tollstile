@@ -54,6 +54,8 @@ JSON-RPC error -32042: URL elicitation required
 
 A client that declared no such capability is told the same thing in the text its model reads, and carries the page in `_meta["tollstile/checkout"]` as well.
 
+The page is told **which call sent the person**: the checkout URL carries that call's signed quote, its resource, and its price, so it can name what is waiting and hand back a command that pays for that one request and nothing else. Without it, someone arriving from an agent has no way to tell their own call apart from the samples on the page.
+
 Which clients can actually open a page is not something to guess at: `GET /api/clients` lists what each client that has connected here declared at `initialize` — name, version, protocol, and its capabilities object. Nothing about who was using it, and nothing it sent.
 
 ## Sessions, and why `/mcp` uses a Durable Object

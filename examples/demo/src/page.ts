@@ -41,6 +41,7 @@ const HTML = String.raw`<!doctype html>
 <body>
 <dialog id="paid-dialog">
   <h2>Something you are running asked to be paid</h2>
+  <p id="pending" hidden></p>
   <p>
     An agent called a tool here, was told it costs money, and its client sent you to this page. That is what should happen: the model has no wallet, and paying is not its decision to make.
   </p>
@@ -51,6 +52,7 @@ const HTML = String.raw`<!doctype html>
     <li><strong>Its client has to attach the payment</strong>, and no chat client does that yet. <a href="https://github.com/tollstile/tollstile/tree/main/examples/demo/scripts/agent.ts">This agent does</a>, with a budget it will not spend past.</li>
     <li><strong>The prices are published</strong> at <a href="/.well-known/tollstile">/.well-known/tollstile</a>, which every tool here is generated from.</li>
   </ul>
+  <pre id="pending-command" hidden></pre>
   <div class="row">
     <button data-run="payButton">Watch a call get paid for</button>
     <button class="secondary" data-close>Close</button>
@@ -185,10 +187,30 @@ document.getElementById('upto').onclick = async () => {
   refresh();
 };
 
+// The call that sent them here, named: the quote is bound to one request, so the command below pays
+// for that one and nothing else. The page cannot make the call — the agent has to, again, with this.
+const waiting = new URLSearchParams(location.search);
+const quote = waiting.get('quote');
+if (quote) {
+  const call = waiting.get('for') ?? 'a call';
+  const price = waiting.get('price') ?? '';
+  const pending = document.getElementById('pending');
+  pending.innerHTML = 'Waiting on: <strong>' + call + '</strong>' + (price ? ' · ' + price : '');
+  pending.hidden = false;
+  const command = document.getElementById('pending-command');
+  const tool = call.startsWith('tool:');
+  const path = tool ? '' : call.replace(/^[A-Z]+ /, '');
+  command.textContent = tool
+    ? 'Your agent has to call ' + call.slice(5) + ' again, with:\n\n  _meta: { "tollstile/test-payment": "test quote=' + quote.slice(0, 18) + '…" }\n\nThe quote is in the address bar; the whole of it goes in place of the …'
+    : 'curl -i -H "Payment: test quote=' + quote + '" \\\n  "' + location.origin + path + '"\n\n# The quote is bound to the exact request that was refused.\n# Send the same query string the agent sent, or it will not pay for it.';
+  command.hidden = false;
+}
+
 // Someone arriving from an agent's client lands on a hash, not on the page: say why they are here.
 const dialogs = { '#pay': 'paid-dialog', '#approval': 'approval-dialog' };
 const openForHash = () => {
-  const dialog = document.getElementById(dialogs[location.hash] ?? '');
+  const id = dialogs[location.hash] ?? (location.pathname === '/pay' ? 'paid-dialog' : '');
+  const dialog = document.getElementById(id);
   if (dialog && !dialog.open) dialog.showModal();
 };
 for (const dialog of document.querySelectorAll('dialog')) {
