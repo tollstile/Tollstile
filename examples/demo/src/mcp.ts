@@ -20,10 +20,17 @@ const SESSION_ID = 'x-demo-session-id';
 function checkout(denial: Denial): { readonly url: string; readonly message: string } | null {
   const { code } = denial.error;
   if (code === 'payment_required' || code === 'quote_required') {
-    return { url: 'https://demo.tollstile.com/#pay', message: 'This tool is paid. Open the demo to see how a call is paid for, and what it costs.' };
+    // The page is told which call sent the person: the quote is bound to that one request, so what
+    // it shows, and the command it hands back, are for the call that is actually waiting.
+    const { quote, resource, price } = denial.body;
+    const url = new URL('https://demo.tollstile.com/pay');
+    if (typeof quote === 'string') url.searchParams.set('quote', quote);
+    if (typeof resource === 'string') url.searchParams.set('for', resource);
+    if (typeof price === 'string') url.searchParams.set('price', price);
+    return { url: url.toString(), message: `This call costs ${typeof price === 'string' ? price : 'money'}. Open the page to see what is waiting and how to pay for it.` };
   }
   if (code === 'access_denied') {
-    return { url: 'https://demo.tollstile.com/#approval', message: 'This tool is charged only with your approval, and this client cannot ask for one. The demo explains what happens instead.' };
+    return { url: 'https://demo.tollstile.com/pay#approval', message: 'This tool is charged only with your approval, and this client cannot ask for one. The demo explains what happens instead.' };
   }
   return null;
 }

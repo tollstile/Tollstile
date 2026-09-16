@@ -211,10 +211,16 @@ describe('the demo worker', () => {
     expect(response.status).toBe(404);
   });
 
-  it('gives a client that cannot pay the page instead of an error the model would read out', async () => {
+  it('gives a client that cannot pay the page, naming the call that is waiting on it', async () => {
     const unpaid = await tool({ session: await open(), name: 'forecast' });
 
-    expect(unpaid._meta?.['tollstile/checkout']).toMatchObject({ url: 'https://demo.tollstile.com/#pay' });
+    const { url } = unpaid._meta?.['tollstile/checkout'] as { url: string };
+    const page = new URL(url);
+    expect(page.pathname).toBe('/pay');
+    expect(page.searchParams.get('for')).toBe('tool:forecast');
+    expect(page.searchParams.get('price')).toBe('$0.01');
+    // Bound to this one call: the page can hand back a command that pays for it and nothing else.
+    expect((page.searchParams.get('quote') ?? '').length).toBeGreaterThan(100);
   });
 
   it('asks before spending the demo credit, and spends nothing when nobody can be asked', async () => {

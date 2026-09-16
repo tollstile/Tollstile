@@ -19,7 +19,7 @@ export default {
     const url = new URL(request.url);
     const priced = offers(env);
 
-    if (url.pathname === '/' && request.method === 'GET') return page(url.host);
+    if ((url.pathname === '/' || url.pathname === '/pay') && request.method === 'GET') return page(url.host);
     // What is on sale, what it costs, and what happens to the money — before anything is called.
     if (url.pathname === '/.well-known/tollstile' && request.method === 'GET') {
       return Response.json(catalog(env), { headers: { 'cache-control': 'public, max-age=60', 'access-control-allow-origin': '*' } });
