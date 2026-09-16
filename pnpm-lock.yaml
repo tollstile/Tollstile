@@ -68,6 +68,28 @@ importers:
         specifier: 4.23.13
         version: 4.23.13
 
+  examples/demo:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@3.25.76)
+      '@tollstile/fetch':
+        specifier: workspace:^
+        version: link:../../packages/fetch
+      '@tollstile/mcp':
+        specifier: workspace:^
+        version: link:../../packages/mcp
+      '@tollstile/sqlite':
+        specifier: workspace:^
+        version: link:../../packages/sqlite
+      tollstile:
+        specifier: workspace:^
+        version: link:../../packages/tollstile
+    devDependencies:
+      wrangler:
+        specifier: 4.131.2
+        version: 4.131.2(@types/node@22.20.2)
+
   examples/express:
     dependencies:
       '@tollstile/express':

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "paths": {
+      "tollstile": ["../../packages/tollstile/src/index.ts"],
+      "tollstile/testing": ["../../packages/tollstile/src/testing/index.ts"],
+      "@tollstile/fetch": ["../../packages/fetch/src/index.ts"],
+      "@tollstile/mcp": ["../../packages/mcp/src/index.ts"],
+      "@tollstile/sqlite": ["../../packages/sqlite/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}
