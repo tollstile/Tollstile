@@ -8,6 +8,7 @@ import type { Balance, DynamicPrice, Gate, PriceInput, PriceOptions, Rail, Tolls
 
 const DEFAULT_PROVIDER_TIMEOUT_MS = 10_000;
 const DEFAULT_QUOTE_TTL_MS = 5 * 60_000;
+const DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024;
 /** Must exceed your slowest handler, or reconciliation can act on a request that is still running. */
 const DEFAULT_RECONCILE_AFTER_MS = 15 * 60_000;
 const MIN_SECRET_LENGTH = 32;
@@ -26,6 +27,7 @@ export function createTollstile<const Rails extends readonly Rail[]>(config: Tol
   const clock = config.clock ?? { now: () => new Date() };
   const providerTimeoutMs = positiveInteger(config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS, 'providerTimeoutMs');
   const quoteTtlMs = positiveInteger(config.quoteTtlMs ?? DEFAULT_QUOTE_TTL_MS, 'quoteTtlMs');
+  const maxRequestBytes = positiveInteger(config.maxRequestBytes ?? DEFAULT_MAX_REQUEST_BYTES, 'maxRequestBytes');
   const balances = new Map<string, Balance>();
 
   const runtime: Runtime = {
@@ -33,6 +35,7 @@ export function createTollstile<const Rails extends readonly Rail[]>(config: Tol
     ledger: config.ledger,
     clock,
     providerTimeoutMs,
+    maxRequestBytes,
     quotes: createQuoteSigner(secretsFor(config), quoteTtlMs, clock),
     balances,
     emit: (event) => config.onEvent?.(event),

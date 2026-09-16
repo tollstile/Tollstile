@@ -24,6 +24,8 @@ export type Runtime = {
   readonly ledger: Ledger;
   readonly clock: Clock;
   readonly providerTimeoutMs: number;
+  /** The largest request body this instance will price. Bigger ones are refused before anything reads one. */
+  readonly maxRequestBytes: number;
   readonly quotes: QuoteSigner;
   /** Balances of policies that reserve value, by policy name. */
   readonly balances: Map<string, Balance>;

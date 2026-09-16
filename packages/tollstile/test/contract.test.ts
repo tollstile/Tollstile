@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createTollstile, memoryLedger, TollstileError, type Ledger, type Requirement } from '../src/index';
+import { httpContext } from '../src/testing/index';
 import { call, setup } from './helpers';
 
 const unavailable = () => new TollstileError('PROVIDER_UNAVAILABLE', 'directory unreachable');
@@ -101,6 +102,43 @@ describe('challenges', () => {
     }
 
     expect(waits.size).toBeGreaterThan(1);
+  });
+});
+
+describe('work an unauthenticated caller can ask for', () => {
+  it('refuses a body larger than it will price, before pricing it or contacting a rail', async () => {
+    const { toll, rail } = setup({ config: { maxRequestBytes: 64 } });
+    let priced = 0;
+    const gate = toll.price(() => {
+      priced += 1;
+      return '$0.01';
+    });
+
+    // A server delivers the length the client declared; this is that request, as one arrives.
+    const request = new Request('http://localhost/weather', { method: 'POST', body: 'x'.repeat(100), headers: { 'content-length': '100' } });
+    const entry = await gate.enter(httpContext(request));
+
+    expect(entry.kind === 'denied' && entry.denial.status).toBe(400);
+    expect(entry.kind === 'denied' && entry.denial.error.detail).toBe('request_too_large');
+    expect(priced).toBe(0);
+    expect(rail.effects).toMatchObject({ settlements: 0 });
+  });
+
+  it('prices a body within the limit', async () => {
+    const { toll } = setup({ config: { maxRequestBytes: 64 } });
+
+    const result = await call(toll.price('$0.01'), { method: 'POST', body: 'x'.repeat(10) });
+
+    expect(result.status).toBe(402);
+  });
+
+  it('will not hash an oversized quote token', async () => {
+    const { toll } = setup();
+    const gate = toll.price('$0.01');
+
+    const result = await call(gate, { payment: `test quote=${'a'.repeat(9000)}` });
+
+    expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_invalid' } } });
   });
 });
 

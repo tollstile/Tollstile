@@ -17,6 +17,13 @@ type WireQuote = {
   readonly exp: number;
 };
 
+/**
+ * The longest token `open()` will hash. A quote with many offers is a few kilobytes; anything past
+ * this is not one, and refusing it before the HMAC keeps an unauthenticated caller from choosing how
+ * much work a rejection costs.
+ */
+const MAX_TOKEN_LENGTH = 8192;
+
 export type QuoteSigner = {
   issue(input: {
     context: Context;
@@ -63,6 +70,7 @@ export function createQuoteSigner(configured: readonly string[] | 'ephemeral', t
     },
 
     async open(token, context) {
+      if (token.length > MAX_TOKEN_LENGTH) return undefined;
       const [payload, signature, extra] = token.split('.');
       if (payload === undefined || signature === undefined || extra !== undefined) return undefined;
       const presented = base64urlDecode(signature);

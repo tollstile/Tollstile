@@ -84,6 +84,15 @@ export function createGate<Rails extends readonly Rail[]>(runtime: Runtime, rout
       if (context.idempotencyKey !== null && !isValidIdempotencyKey(context.idempotencyKey)) {
         return deny(runtime, context, { code: 'invalid_request', message: 'An idempotency key must be 1 to 255 visible ASCII characters.' });
       }
+      // Before the body is read, the price computed, or a rail contacted: everything after this line
+      // is work an unauthenticated caller asked for, and its size is theirs to choose until here.
+      if (declaredBytes(context) > runtime.maxRequestBytes) {
+        return deny(runtime, context, {
+          code: 'invalid_request',
+          message: `The request body is larger than this route will price (${String(runtime.maxRequestBytes)} bytes).`,
+          detail: 'request_too_large',
+        });
+      }
       if (route.access === undefined) return enterWithPayment<Rails>(runtime, route, context);
 
       let priced: Priced | undefined;
@@ -411,6 +420,15 @@ async function commitmentFor(route: Route, context: Context): Promise<string> {
     parts.push('custom', await route.commit(withReadableRequest(context)));
   }
   return hex(await sha256(JSON.stringify(parts)));
+}
+
+/**
+ * What the request says it is carrying. A body without a declared length is bounded by the runtime
+ * or whatever sits in front of it, not by this check.
+ */
+function declaredBytes(context: Context): number {
+  const declared = context.request?.headers.get('content-length');
+  return declared === null || declared === undefined ? 0 : (Number.parseInt(declared, 10) || 0);
 }
 
 /** Price and commitment functions read a copy, so the handler can still read the body. */

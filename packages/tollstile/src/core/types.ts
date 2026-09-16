@@ -388,6 +388,12 @@ export type TollstileConfig<Rails extends readonly Rail[]> = {
   readonly secret?: string | readonly string[] | undefined;
   /** How long a quote is honored. Defaults to 5 minutes. */
   readonly quoteTtlMs?: number;
+  /**
+   * The largest request body this instance will price, in bytes. Defaults to 1 MiB. A request that
+   * declares more is refused before its body is read, its price computed, or any rail contacted:
+   * pricing an unauthenticated request is work someone else asked for.
+   */
+  readonly maxRequestBytes?: number;
   readonly clock?: Clock;
   /** Upper bound for any single provider call. Defaults to 10 seconds. */
   readonly providerTimeoutMs?: number;
