@@ -747,6 +747,51 @@ describe('sending a person to a page where they can pay', () => {
     expect(result._meta?.['tollstile/checkout']).toEqual({ url: CREDITS, message: 'Add credit to keep calling.' });
   });
 
+  it('puts the page on screen through form mode when the client cannot open one', async () => {
+    const test = testRail();
+    const ledger = memoryLedger();
+    const toll = createTollstile({ rails: [test], ledger, secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'weather', version: '1.0.0' });
+    // What Claude Code declares: it can ask a question, but cannot be sent to a page.
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    const asked: string[] = [];
+    client.setRequestHandler(ElicitRequestSchema, (request) => {
+      asked.push(request.params.message);
+      return { action: 'decline' };
+    });
+    paidTool(server, 'forecast', {}, toll.price('$0.01'), () => ({ content: [{ type: 'text', text: 'clear' }] }), {
+      checkout: () => ({ url: CREDITS, message: 'Add credit to keep calling.' }),
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = (await client.callTool({ name: 'forecast' })) as CallToolResult;
+
+    expect(asked).toEqual([`Add credit to keep calling.\n\n${CREDITS}`]);
+    // Whatever they pressed, the call was not paid for: the denial stands and nothing is charged.
+    expect(denialOf(result)).toMatchObject({ error: { code: 'payment_required' } });
+    expect(ledger.charges()).toHaveLength(0);
+  });
+
+  it('still answers when the client fails to show the page', async () => {
+    const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger(), secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'weather', version: '1.0.0' });
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    client.setRequestHandler(ElicitRequestSchema, () => {
+      throw new Error('no dialog here');
+    });
+    paidTool(server, 'forecast', {}, toll.price('$0.01'), () => ({ content: [{ type: 'text', text: 'clear' }] }), {
+      checkout: () => ({ url: CREDITS }),
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = (await client.callTool({ name: 'forecast' })) as CallToolResult;
+
+    expect(textOf(result)).toBe(`Payment is required to continue.\n${CREDITS}`);
+    expect(denialOf(result)).toMatchObject({ error: { code: 'payment_required' } });
+  });
+
   it('says something sensible when the merchant supplied no message', async () => {
     const { call } = withCheckout({ checkout: () => ({ url: CREDITS }), capabilities: {} });
 

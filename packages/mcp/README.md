@@ -86,6 +86,7 @@ paidTool(server, 'forecast', config, gate, handler, {
 | The client | What it gets |
 |---|---|
 | Declared `capabilities.elicitation.url` | JSON-RPC error `-32042` carrying the page, per MCP's URL elicitation: the client shows its user the link and stops |
+| Declared `elicitation.form` but not `url` | The message and the URL as a question the client puts on screen, then the denial. Whatever they press, the call was not paid for |
 | Anything else, including a server that keeps no session | The message and the URL as the result's **first content block**, so the model can tell the person; the denial body follows in the next block, and `_meta["tollstile/checkout"]` carries the page too |
 | Can pay for itself (`experimental.payment`, and a rail offers MPP) | Its own payment challenge. A client that can pay is never sent to a person |
 

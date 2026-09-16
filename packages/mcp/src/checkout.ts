@@ -1,4 +1,5 @@
-import { UrlElicitationRequiredError, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
+import { ElicitResultSchema, UrlElicitationRequiredError, type CallToolResult, type ServerNotification, type ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 import { TollstileError, type Denial } from 'tollstile';
 
 /** Where a person goes to pay, and what the client tells them before sending them there. */
@@ -50,6 +51,24 @@ export function urlElicitation(checkout: Checkout): UrlElicitationRequiredError 
   return new UrlElicitationRequiredError([
     { mode: 'url', message: checkout.message ?? 'Payment is required to continue.', elicitationId: crypto.randomUUID(), url: checkout.url },
   ]);
+}
+
+/**
+ * The page, as a question a client that cannot open one can still put on screen. Clients that
+ * declare only `form` — the common case — show the message and wait, which is the difference
+ * between a person seeing an address and a model being asked to recite one.
+ *
+ * The answer is not used: whatever they press, the call was not paid for and the denial stands.
+ */
+export async function showCheckout(
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  checkout: Checkout,
+): Promise<void> {
+  const message = checkout.message ?? 'Payment is required to continue.';
+  await extra.sendRequest(
+    { method: 'elicitation/create', params: { mode: 'form', message: `${message}\n\n${checkout.url}`, requestedSchema: { type: 'object' as const, properties: {} } } },
+    ElicitResultSchema,
+  );
 }
 
 /** A page a client will open must be one a browser can open, and one this server meant to send. */
