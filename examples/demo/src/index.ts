@@ -25,6 +25,8 @@ export default {
       return Response.json(catalog(env), { headers: { 'cache-control': 'public, max-age=60', 'access-control-allow-origin': '*' } });
     }
     if (url.pathname === '/api/charges' && request.method === 'GET') return recentCharges(env);
+    // What each MCP client that has connected here says it can do.
+    if (url.pathname === '/api/clients' && request.method === 'GET') return connectedClients(env);
     if (url.pathname === '/mcp') return mcp(request, env);
 
     if (url.pathname === '/v1/forecast' && request.method === 'GET') {
@@ -77,6 +79,31 @@ async function charge(env: Env, payment: Payment<readonly Rail[]>, text: string,
   const chargeId = payment.chargeId;
   if (chargeId === null) return payment.fulfill({ amount });
   await payment.fulfill({ amount, resultRef: await keepResult(env, chargeId, result) });
+}
+
+/** Which MCP clients have connected, and what each declared. Names and capabilities only. */
+async function connectedClients(env: Env): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    `SELECT name, version, protocol, capabilities, connections, last_seen FROM demo_clients ORDER BY last_seen DESC LIMIT 50`,
+  ).all<Record<string, string | number>>();
+  return Response.json(
+    {
+      clients: results.map((row) => ({
+        ...row,
+        capabilities: JSON.parse(String(row.capabilities)) as unknown,
+        elicitation: capabilityOf(String(row.capabilities)),
+      })),
+    },
+    { headers: { 'cache-control': 'no-store', 'access-control-allow-origin': '*' } },
+  );
+}
+
+/** The one question every server asks about a client: can it put something in front of a person? */
+function capabilityOf(capabilities: string): string {
+  const declared = JSON.parse(capabilities) as { elicitation?: { form?: unknown; url?: unknown } };
+  if (declared.elicitation === undefined) return 'none';
+  const modes = [declared.elicitation.form === undefined ? [] : ['form'], declared.elicitation.url === undefined ? [] : ['url']].flat();
+  return modes.length === 0 ? 'declared, no mode' : modes.join(' + ');
 }
 
 /** The ledger, read straight from D1 for the live table on the page. */

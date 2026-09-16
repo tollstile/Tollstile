@@ -40,3 +40,26 @@ export async function readResult(env: Env, id: string): Promise<string | undefin
   const { results } = await env.DB.prepare('SELECT content FROM demo_results WHERE id = ?').bind(id).all<{ content: string }>();
   return results[0]?.content;
 }
+
+/**
+ * Records that a client connected, and what it declared it can do. Nothing about who is using it
+ * and nothing it sent: a name, a version, and the capabilities object from `initialize`.
+ */
+export async function noteClient(
+  env: Env,
+  client: { readonly name: string; readonly version: string } | undefined,
+  capabilities: unknown,
+  protocol: string,
+): Promise<void> {
+  const name = client?.name ?? 'unknown';
+  const version = client?.version ?? 'unknown';
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO demo_clients (id, name, version, protocol, capabilities, first_seen, last_seen, connections)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+     ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, capabilities = excluded.capabilities,
+       protocol = excluded.protocol, connections = demo_clients.connections + 1`,
+  )
+    .bind(`${name}@${version}`, name, version, protocol, JSON.stringify(capabilities ?? {}), now, now)
+    .all();
+}
