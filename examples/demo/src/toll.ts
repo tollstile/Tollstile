@@ -3,6 +3,8 @@ import { createTollstile, memoryBalance, testRail, type Tollstile, type Rail } f
 
 export type Env = {
   readonly DB: D1Database;
+  /** One Durable Object per MCP session: approval needs the client's answer to reach the server that asked. */
+  readonly MCP_SESSIONS: DurableObjectNamespace;
   /** Signs quotes. Set with `wrangler secret put TOLLSTILE_SECRET`; quotes must verify across isolates. */
   readonly TOLLSTILE_SECRET: string;
 };

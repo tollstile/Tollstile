@@ -7,6 +7,8 @@
   "observability": { "enabled": true },
   "routes": [{ "pattern": "demo.tollstile.com", "custom_domain": true }],
   "triggers": { "crons": ["*/5 * * * *"] },
+  "durable_objects": { "bindings": [{ "name": "MCP_SESSIONS", "class_name": "McpSession" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["McpSession"] }],
   "d1_databases": [
     {
       "binding": "DB",

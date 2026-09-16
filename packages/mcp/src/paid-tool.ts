@@ -9,7 +9,8 @@ import {
 } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { CallToolResult, RequestInfo, ServerNotification, ServerRequest, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import { idempotencyKeyOf, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
+import { idempotencyKeyOf, parseMoney, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
+import { approve, type Approval, type ApprovalDecision } from './approval';
 import { isJsonObject, parseJsonObject, parseJsonValue } from './json-object';
 import { DENIAL_META, renderDenial } from './render-denial';
 
@@ -30,6 +31,8 @@ export type PaidToolConfig<InputArgs extends undefined | ToolSchema, OutputArgs 
 export type PaidToolOptions = {
   /** Resolves the authenticated caller, for access policies such as `subscriber()` and `credits()`. */
   readonly principal?: (extra: ToolExtra) => Principal | null | Promise<Principal | null>;
+  /** Asks the person at the client to approve the charge before the tool runs. */
+  readonly approval?: Approval;
 };
 
 /** The SDK's request context for the tool call, plus the payment that admitted it. */
@@ -57,6 +60,9 @@ export type PaidToolHandler<Rails extends readonly Rail[], InputArgs extends und
  * tool result when a rail offers x402, otherwise an `isError` result with Tollstile's denial body.
  * Every denial rendered as a tool result carries that body in `_meta["tollstile/payment-required"]`.
  *
+ * With `options.approval`, the person at the client is asked over MCP elicitation before the call is
+ * charged, and a call they do not approve is released instead of settled.
+ *
  * @example
  * ```ts
  * const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
@@ -79,10 +85,14 @@ export function paidTool<
   handler: PaidToolHandler<Rails, InputArgs>,
   options: PaidToolOptions = {},
 ): RegisteredTool {
+  const { approval } = options;
+  const above = approval?.above === undefined ? null : parseMoney(approval.above);
+
   const call = async (args: unknown, extra: ToolExtra): Promise<CallToolResult> => {
     const meta = parseJsonObject(extra._meta);
     if (meta === undefined) return invalidRequest('meta_not_json');
-    const clientCapabilities = parseJsonObject(server.server.getClientCapabilities());
+    const capabilities = server.server.getClientCapabilities();
+    const clientCapabilities = parseJsonObject(capabilities);
     if (clientCapabilities === undefined) return invalidRequest('client_capabilities_not_json');
     const toolArguments = parseJsonValue(args);
     if (toolArguments === undefined) return invalidRequest('arguments_not_json');
@@ -105,16 +115,33 @@ export function paidTool<
     }
 
     const { pass } = entry;
-    let result: CallToolResult;
-    // catch-reason: the adapter entry point records a thrown handler as a failed outcome, so the
-    // reservation is released, then lets the SDK render the error as it would for an unpaid tool.
-    try {
-      // McpServer validated `args` against `config.inputSchema` before calling back.
-      result = await handler(args as PaidToolArgs<InputArgs>, { ...extra, payment: pass.payment });
-    } catch (error) {
-      await pass.complete('failed');
-      throw error;
+    /**
+     * Anything that throws after admission releases the reservation before the error leaves the
+     * adapter, so a call that never ran is not charged.
+     */
+    const releaseOnThrow = async <T>(work: () => T | Promise<T>): Promise<T> => {
+      // catch-reason: the adapter entry point records the failure as the call's outcome, then lets
+      // the SDK render the error as it would for an unpaid tool.
+      try {
+        return await work();
+      } catch (error) {
+        await pass.complete('failed');
+        throw error;
+      }
+    };
+
+    if (approval !== undefined) {
+      const decision = await releaseOnThrow(() =>
+        approve({ extra, payment: pass.payment, tool: name, above, canAsk: capabilities?.elicitation !== undefined, approval }),
+      );
+      if (decision !== 'approved') {
+        await pass.complete('failed');
+        return notApproved(decision);
+      }
     }
+
+    // McpServer validated `args` against `config.inputSchema` before calling back.
+    const result = await releaseOnThrow(() => handler(args as PaidToolArgs<InputArgs>, { ...extra, payment: pass.payment }));
 
     const { receipt, denial } = await pass.complete((await succeeded(result, registered.outputSchema)) ? 'succeeded' : 'failed');
     if (denial !== null) {
@@ -151,6 +178,16 @@ async function succeeded(result: CallToolResult, outputSchema: AnySchema | undef
 function acceptsMpp(clientCapabilities: JsonObject): boolean {
   const { experimental } = clientCapabilities;
   return experimental !== undefined && isJsonObject(experimental) && experimental.payment !== undefined;
+}
+
+/** The person was asked and did not approve, or could not be asked: the reservation was released and nothing was charged. */
+function notApproved(decision: Exclude<ApprovalDecision, 'approved'>): CallToolResult {
+  const message =
+    decision === 'unavailable'
+      ? 'This tool is charged only with a person\'s approval, and this client cannot ask for one.'
+      : 'The person using this client did not approve the charge.';
+  const body = { error: { code: 'access_denied', retryable: false, action: 'stop', message, detail: `approval_${decision}` } };
+  return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }], _meta: { [DENIAL_META]: body } };
 }
 
 function invalidRequest(detail: string): CallToolResult {

@@ -20,6 +20,9 @@ coverage/
 *.db-shm
 *.db-wal
 
+# Local worker state (miniflare's D1, Durable Objects, and build output)
+.wrangler/
+
 # OS
 .DS_Store
 

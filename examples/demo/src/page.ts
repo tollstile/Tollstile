@@ -60,8 +60,15 @@ curl -i -H "Payment: test quote=&lt;quote&gt;" "https://DEMO_HOST/v1/forecast?ci
 curl -i -X POST --data "the weather in tokyo is clear" https://DEMO_HOST/v1/translate</pre>
 
   <h2>Or from an agent, over MCP</h2>
-  <p>Streamable HTTP at <code>https://DEMO_HOST/mcp</code>. Call <code>pricing</code> free, then <code>forecast</code> for $0.01 by putting the payment in <code>_meta</code>.</p>
+  <p>
+    Streamable HTTP at <code>https://DEMO_HOST/mcp</code>. Call <code>pricing</code> free, then <code>forecast</code> for $0.01 by putting the payment in <code>_meta</code>.
+    <code>summarize</code> costs up to $0.50 and is never charged silently: the server asks the person at the client to approve it, and a call they decline is released.
+  </p>
   <pre>claude mcp add --transport http tollstile-demo https://DEMO_HOST/mcp</pre>
+  <p class="note">
+    Most clients do not let a model write <code>_meta</code>, so paying is the client's job, not the model's.
+    <a href="https://github.com/tollstile/tollstile/tree/main/examples/demo/scripts/agent.ts">This agent</a> shows both halves: it holds a budget it will not spend past, and it answers the approval request the server sends back.
+  </p>
 
   <h2>The ledger, live</h2>
   <p class="note">Charges written by every call above — yours and everyone else's. Refreshes every two seconds.</p>

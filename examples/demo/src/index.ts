@@ -11,6 +11,8 @@ const MEMBER_KEY = 'demo-member';
 const principal = (request: Request): Principal | null =>
   request.headers.get('x-api-key') === MEMBER_KEY ? { id: 'demo_member' } : null;
 
+export { McpSession } from './mcp';
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
