@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tollstile-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "demo.tollstile.com", "custom_domain": true }],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tollstile-demo",
+      "database_id": "f0406906-aa81-43dc-8d54-67020c6d0ad0",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

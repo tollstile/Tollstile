@@ -1,0 +1,22 @@
+{
+  "name": "@tollstile-examples/demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate": "wrangler d1 migrations apply DB --remote",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@tollstile/fetch": "workspace:^",
+    "@tollstile/mcp": "workspace:^",
+    "@tollstile/sqlite": "workspace:^",
+    "tollstile": "workspace:^"
+  },
+  "devDependencies": {
+    "wrangler": "4.131.2"
+  }
+}

@@ -73,6 +73,10 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 | [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
 | [`create-tollstile`](./packages/create-tollstile) | Project generator | Tested |
 
+## Live demo
+
+[demo.tollstile.com](https://demo.tollstile.com) is a paid API you can pay for right now: `402` with a signed quote, pay with the test rail, `200` with a receipt, and the ledger filling up on the page. Same thing over MCP at `https://demo.tollstile.com/mcp`. Source: [`examples/demo`](./examples/demo).
+
 ## Build a rail
 
 Any payment protocol or provider can be added without touching core: write it with `createRail()`, test it against a fake provider, and prove it with `railConformance()`. Start from [`examples/custom-rail`](./examples/custom-rail) and the [Build a rail](https://tollstile.com/docs/rails/build-a-rail) guide. Published rails can be listed on [Community rails](https://tollstile.com/docs/rails/community).
