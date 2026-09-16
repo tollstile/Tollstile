@@ -1,3 +1,4 @@
+export { type Approval, type ApprovalDecision } from './approval';
 export {
   paidTool,
   type PaidToolArgs,

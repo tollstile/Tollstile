@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { CursorSchema, McpError, type CallToolResult, type ClientCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import { CursorSchema, ElicitRequestSchema, McpError, type CallToolResult, type ClientCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import {
   createTollstile,
   credits,
@@ -18,7 +18,7 @@ import {
 } from 'tollstile';
 import { fakeClock } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
-import { paidTool, type PaidToolOptions } from '../src/index';
+import { paidTool, type Approval, type PaidToolOptions } from '../src/index';
 
 const MPP_CHALLENGE = {
   id: 'ch_abc123',
@@ -546,5 +546,144 @@ describe('Streamable HTTP', () => {
     const unpaid = await post({});
     expect(unpaid.isError).toBe(true);
     expect(ledger.charges()).toHaveLength(0);
+  });
+});
+
+describe('approval by the person at the client', () => {
+  type Answer = 'accept' | 'decline' | 'cancel';
+
+  function withApproval(options: { readonly approval: Approval; readonly answer?: Answer; readonly canAsk?: boolean }) {
+    const test = testRail();
+    const clock = fakeClock();
+    const ledger = memoryLedger({ clock });
+    const toll = createTollstile({ rails: [test], ledger, clock, secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'documents', version: '1.0.0' });
+    const canAsk = options.canAsk ?? true;
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: canAsk ? { elicitation: {} } : {} });
+    const asked: string[] = [];
+    if (canAsk) {
+      client.setRequestHandler(ElicitRequestSchema, (request) => {
+        asked.push(request.params.message);
+        return { action: options.answer ?? 'accept' };
+      });
+    }
+
+    let runs = 0;
+    paidTool(
+      server,
+      'summarize',
+      {},
+      toll.price('$0.05'),
+      () => {
+        runs += 1;
+        return { content: [{ type: 'text', text: 'two sentences' }] };
+      },
+      { approval: options.approval },
+    );
+
+    const call = async () => {
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+      return (await client.callTool({ name: 'summarize', _meta: { 'tollstile/test-payment': 'test proof=p1' } })) as CallToolResult;
+    };
+
+    return { call, asked, test, runs: () => runs, charges: () => ledger.charges().map((charge) => `${charge.payment}/${charge.fulfillment}`) };
+  }
+
+  it('asks before charging and settles when the person accepts', async () => {
+    const { call, asked, test, runs, charges } = withApproval({ approval: {} });
+
+    const result = await call();
+
+    expect(asked).toEqual(['Approve $0.05 for "summarize"?']);
+    expect(textOf(result)).toBe('two sentences');
+    expect(runs()).toBe(1);
+    expect(test.effects.settlements).toBe(1);
+    expect(charges()).toEqual(['settled/completed']);
+  });
+
+  it('releases the reservation and never runs the tool when the person declines', async () => {
+    const { call, test, runs, charges } = withApproval({ approval: {}, answer: 'decline' });
+
+    const result = await call();
+
+    expect(result.isError).toBe(true);
+    expect(denialOf(result)).toEqual({
+      error: { code: 'access_denied', retryable: false, action: 'stop', message: expect.any(String) as unknown, detail: 'approval_declined' },
+    });
+    expect(runs()).toBe(0);
+    expect(test.effects).toMatchObject({ settlements: 0, releases: 1 });
+    expect(charges()).toEqual(['released/failed']);
+  });
+
+  it('reports a dismissed request as cancelled', async () => {
+    const { call, charges } = withApproval({ approval: {}, answer: 'cancel' });
+
+    expect(denialOf(await call())).toMatchObject({ error: { detail: 'approval_cancelled' } });
+    expect(charges()).toEqual(['released/failed']);
+  });
+
+  it('charges without asking at or below `above`', async () => {
+    const { call, asked, test } = withApproval({ approval: { above: '$0.05' } });
+
+    expect(textOf(await call())).toBe('two sentences');
+    expect(asked).toEqual([]);
+    expect(test.effects.settlements).toBe(1);
+  });
+
+  it('asks above `above`', async () => {
+    const { call, asked } = withApproval({ approval: { above: '$0.04' } });
+
+    await call();
+
+    expect(asked).toEqual(['Approve $0.05 for "summarize"?']);
+  });
+
+  it('asks the merchant\'s own question', async () => {
+    const { call, asked } = withApproval({ approval: { message: (payment) => `Summarize this document for ${payment.via}?` } });
+
+    await call();
+
+    expect(asked).toEqual(['Summarize this document for rail?']);
+  });
+
+  it('refuses the charge when the client cannot ask anyone', async () => {
+    const { call, test, runs, charges } = withApproval({ approval: {}, canAsk: false });
+
+    const result = await call();
+
+    expect(denialOf(result)).toMatchObject({ error: { code: 'access_denied', detail: 'approval_unavailable' } });
+    expect(runs()).toBe(0);
+    expect(test.effects).toMatchObject({ settlements: 0, releases: 1 });
+    expect(charges()).toEqual(['released/failed']);
+  });
+
+  it('charges a client that cannot ask when the merchant allows it', async () => {
+    const { call, asked, test } = withApproval({ approval: { unsupported: 'charge' }, canAsk: false });
+
+    expect(textOf(await call())).toBe('two sentences');
+    expect(asked).toEqual([]);
+    expect(test.effects.settlements).toBe(1);
+  });
+
+  it('releases the reservation when the client fails to answer', async () => {
+    const test = testRail();
+    const clock = fakeClock();
+    const ledger = memoryLedger({ clock });
+    const toll = createTollstile({ rails: [test], ledger, clock, secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'documents', version: '1.0.0' });
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+    client.setRequestHandler(ElicitRequestSchema, () => {
+      throw new Error('no one is at the keyboard');
+    });
+    paidTool(server, 'summarize', {}, toll.price('$0.05'), () => ({ content: [{ type: 'text', text: 'two sentences' }] }), { approval: {} });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = (await client.callTool({ name: 'summarize', _meta: { 'tollstile/test-payment': 'test proof=p1' } })) as CallToolResult;
+
+    expect(result.isError).toBe(true);
+    expect(test.effects).toMatchObject({ settlements: 0, releases: 1 });
+    expect(ledger.charges().map((charge) => `${charge.payment}/${charge.fulfillment}`)).toEqual(['released/failed']);
   });
 });
