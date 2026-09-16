@@ -17,6 +17,15 @@ declare global {
     batch<T = Record<string, unknown>>(statements: readonly D1PreparedStatement[]): Promise<D1Result<T>[]>;
   };
 
+  type DurableObjectId = { toString(): string };
+  type DurableObjectState = { readonly id: DurableObjectId };
+
+  type DurableObjectNamespace = {
+    newUniqueId(): DurableObjectId;
+    idFromString(id: string): DurableObjectId;
+    get(id: DurableObjectId): { fetch(request: Request): Promise<Response> };
+  };
+
   type ScheduledController = { readonly scheduledTime: number; readonly cron: string };
   type ExecutionContext = { waitUntil(promise: Promise<unknown>): void; passThroughOnException(): void };
 }

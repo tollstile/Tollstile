@@ -10,5 +10,5 @@
       "@tollstile/sqlite": ["../../packages/sqlite/src/index.ts"]
     }
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "scripts"]
 }

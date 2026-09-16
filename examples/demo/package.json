@@ -7,16 +7,20 @@
     "deploy": "wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate": "wrangler d1 migrations apply DB --remote",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "agent": "tsx scripts/agent.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@tollstile/fetch": "workspace:^",
     "@tollstile/mcp": "workspace:^",
     "@tollstile/sqlite": "workspace:^",
-    "tollstile": "workspace:^"
+    "tollstile": "workspace:^",
+    "zod": "3.25.76"
   },
   "devDependencies": {
-    "wrangler": "4.131.2"
+    "wrangler": "4.131.2",
+    "@types/node": "^22.18.0",
+    "tsx": "4.23.13"
   }
 }
