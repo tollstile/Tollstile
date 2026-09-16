@@ -42,7 +42,7 @@ curl -i -H "Payment: test" localhost:3000/weather   # 200 OK + receipt
 
 The handler you already had, with a price in front of it. Same two lines on [Express](./packages/express), [Hono](./packages/hono), [any `fetch` handler](./packages/fetch), and [MCP tools](./packages/mcp).
 
-> **Early Access.** Tollstile is available for public evaluation. The x402 `exact` flow has been verified live on Base Sepolia, including a real USDC transfer, replay rejection, and recovery across a restart. Every other rail — MPP (Stripe and Tempo), L402, KYAPay, AP2 — is tested against in-process fakes and published vectors, and has never been run against its provider. Packages are not on npm yet.
+> **Early Access.** Tollstile is available for public evaluation. The x402 `exact` flow has been verified live on Base Sepolia, including a real USDC transfer, replay rejection, and recovery across a restart. Every other rail — MPP (Stripe and Tempo), L402, KYAPay, AP2 — is tested against in-process fakes and published vectors, and has never been run against its provider.
 
 ## Prompt your coding agent
 
