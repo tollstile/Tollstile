@@ -10,6 +10,7 @@ function d1(): D1Database {
   const db = new DatabaseSync(':memory:');
   db.exec(sqliteSchema);
   db.exec(readFileSync(new URL('../migrations/0002_results.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0003_clients.sql', import.meta.url), 'utf8'));
   const statement = (sql: string, params: readonly (string | number | null)[] = []): D1PreparedStatement => ({
     bind: (...values) => statement(sql, values),
     all: () => Promise.resolve({ results: db.prepare(sql).all(...params) as never, success: true }),
@@ -171,6 +172,18 @@ describe('the demo worker', () => {
     const retry = await call('/v1/forecast?city=Kyoto', { headers });
     expect(retry.status).toBe(409);
     expect(await retry.json()).toMatchObject({ error: { code: 'already_paid' } });
+  });
+
+  it('records what a client said it could do, and nothing about who is using it', async () => {
+    await open();
+
+    const { clients } = (await (await call('/api/clients')).json()) as {
+      clients: { name: string; version: string; elicitation: string; capabilities: Record<string, unknown> }[];
+    };
+
+    expect(clients).toEqual([
+      expect.objectContaining({ name: 'test', version: '1.0.0', elicitation: 'none', capabilities: {} }) as unknown,
+    ]);
   });
 
   it('charges an MCP tool call and returns the receipt in _meta', async () => {

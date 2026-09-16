@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { offers } from './catalog';
 import type { Denial } from 'tollstile';
 import { forecast, summarize, words } from './handlers';
-import { keepResult, type Env } from './toll';
+import { keepResult, noteClient, type Env } from './toll';
 
 /** The header the worker uses to tell a session which id it was routed under. */
 const SESSION_ID = 'x-demo-session-id';
@@ -96,7 +96,13 @@ export class McpSession {
       if (!(await startsSession(request))) return sessionNotFound();
       const sessionId = request.headers.get(SESSION_ID) ?? crypto.randomUUID();
       this.#transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => sessionId });
-      await tools(this.#env).connect(this.#transport);
+      const server = tools(this.#env);
+      // Who connects here and what they say they can do. The answer is otherwise guesswork.
+      const env = this.#env;
+      server.server.oninitialized = () => {
+        void noteClient(env, server.server.getClientVersion(), server.server.getClientCapabilities(), request.headers.get('mcp-protocol-version') ?? 'unknown');
+      };
+      await server.connect(this.#transport);
     }
     return this.#transport.handleRequest(request);
   }

@@ -13,6 +13,7 @@ The rail is the **test rail**, so anyone can pay: send `Payment: test quote=<quo
 | `POST /mcp` | up to $0.50 per `summarize` call | A charge a person has to approve: the server asks over MCP elicitation, and a call they decline is released |
 | `GET /api/charges` | free | The ledger behind the live table on the page |
 | `GET /v1/results/:id` | free | What a paid call produced, by the reference a retry is handed in `already_paid` |
+| `GET /api/clients` | free | Which MCP clients have connected here and what each declared it can do — names and capabilities only |
 | `GET /.well-known/tollstile` | free | What is on sale, what it costs, and what happens to the money — read before calling anything |
 
 Retries are safe everywhere: send `Idempotency-Key` (or `_meta["tollstile/idempotency-key"]`) and a repeat is answered `409 already_paid` instead of being charged again — with `result`, the reference to what the first call produced, so the answer is recovered rather than bought twice. The demo keeps those under the charge's own id; Tollstile stores the reference, never the result.
@@ -50,7 +51,9 @@ JSON-RPC error -32042: URL elicitation required
 { "elicitations": [{ "mode": "url", "message": "This tool is paid…", "url": "https://demo.tollstile.com/#pay" }] }
 ```
 
-A client that declared no such capability gets the usual denial with the same page in `_meta["tollstile/checkout"]`. Claude Code and VS Code 1.107 implement URL elicitation; Claude Desktop does not yet, so it takes the `_meta` path.
+A client that declared no such capability is told the same thing in the text its model reads, and carries the page in `_meta["tollstile/checkout"]` as well.
+
+Which clients can actually open a page is not something to guess at: `GET /api/clients` lists what each client that has connected here declared at `initialize` — name, version, protocol, and its capabilities object. Nothing about who was using it, and nothing it sent.
 
 ## Sessions, and why `/mcp` uses a Durable Object
 
