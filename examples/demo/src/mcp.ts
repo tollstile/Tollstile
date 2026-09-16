@@ -5,11 +5,28 @@ import { paidTool } from '@tollstile/mcp';
 import { formatMoney, money } from 'tollstile';
 import { z } from 'zod';
 import { offers } from './catalog';
+import type { Denial } from 'tollstile';
 import { forecast, summarize, words } from './handlers';
 import { keepResult, type Env } from './toll';
 
 /** The header the worker uses to tell a session which id it was routed under. */
 const SESSION_ID = 'x-demo-session-id';
+
+/**
+ * Where a person is sent when the call cannot be paid for from where they are sitting. No chat
+ * client lets a model attach a payment, so for a human at one of them this is the only way forward:
+ * the client shows the link and stops, instead of handing the model an error to read out.
+ */
+function checkout(denial: Denial): { readonly url: string; readonly message: string } | null {
+  const { code } = denial.error;
+  if (code === 'payment_required' || code === 'quote_required') {
+    return { url: 'https://demo.tollstile.com/#pay', message: 'This tool is paid. Open the demo to see how a call is paid for, and what it costs.' };
+  }
+  if (code === 'access_denied') {
+    return { url: 'https://demo.tollstile.com/#approval', message: 'This tool is charged only with your approval, and this client cannot ask for one. The demo explains what happens instead.' };
+  }
+  return null;
+}
 
 /**
  * Routes an MCP request to its session. Asking a person to approve a charge means the server sends
@@ -99,6 +116,7 @@ function tools(env: Env): McpServer {
       const result = forecast('Tokyo');
       return { content: [{ type: 'text' as const, text: `${result.city}: ${result.forecast} (paid via ${payment.via})` }] };
     },
+    { checkout },
   );
 
   // Nothing here is charged until a person answers: the client is asked over MCP elicitation, and a
@@ -116,7 +134,7 @@ function tools(env: Env): McpServer {
       await payment.fulfill(chargeId === null ? { amount } : { amount, resultRef: await keepResult(env, chargeId, result.summary) });
       return { content: [{ type: 'text' as const, text: result.summary }] };
     },
-    { approval: { message: (payment) => `Summarize this text for up to ${formatMoney(payment.amount)}?` } },
+    { approval: { message: (payment) => `Summarize this text for up to ${formatMoney(payment.amount)}?` }, checkout },
   );
 
   server.registerTool(

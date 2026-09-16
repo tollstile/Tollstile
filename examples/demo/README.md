@@ -35,6 +35,23 @@ pnpm --filter @tollstile-examples/demo agent -- --budget '1 USD' --no     # answ
 
 Most MCP clients give the model no way to write `_meta`, which is the right shape: the model asks for a tool, the client decides whether to pay for it. Point the agent at a local worker with `--url http://localhost:8787/mcp`.
 
+## What a chat client sees
+
+No chat client lets a model attach a payment, so the demo's tools also carry a `checkout`: a denial a client cannot act on is answered with a page for the person instead of an error for the model. What each client gets depends on what it declared.
+
+```bash
+pnpm --filter @tollstile-examples/demo exec tsx scripts/probe-url-elicitation.ts
+```
+
+That connects as a client that says it can open a page, and prints what comes back:
+
+```
+JSON-RPC error -32042: URL elicitation required
+{ "elicitations": [{ "mode": "url", "message": "This tool is paid…", "url": "https://demo.tollstile.com/#pay" }] }
+```
+
+A client that declared no such capability gets the usual denial with the same page in `_meta["tollstile/checkout"]`. Claude Code and VS Code 1.107 implement URL elicitation; Claude Desktop does not yet, so it takes the `_meta` path.
+
 ## Sessions, and why `/mcp` uses a Durable Object
 
 Asking a person to approve a charge means the server sends the client a request and reads the answer off a **later** POST. A stateless MCP endpoint cannot do that: the answer arrives at a different isolate than the one waiting for it. So every request for one session is routed to one Durable Object, which holds the MCP server for as long as the session lives. The paid HTTP routes need none of this — they are rebuilt per request.
