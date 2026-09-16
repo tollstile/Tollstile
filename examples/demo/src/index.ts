@@ -1,9 +1,10 @@
 import { paid } from '@tollstile/fetch';
-import { credits, payPerCall, upTo, type Payment, type Principal, type Rail } from 'tollstile';
-import { forecast, pricePerWord, summarize, translate, words } from './handlers';
+import type { Payment, Principal, Rail } from 'tollstile';
+import { catalog, offers } from './catalog';
+import { forecast, summarize, translate, words } from './handlers';
 import { mcp } from './mcp';
 import { page } from './page';
-import { createToll, keepResult, readResult, credits as balance, type Env } from './toll';
+import { createToll, keepResult, readResult, type Env } from './toll';
 
 /** The demo's "member": callers who send this key draw from prepaid credits instead of paying. */
 const MEMBER_KEY = 'demo-member';
@@ -16,25 +17,29 @@ export { McpSession } from './mcp';
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const toll = createToll(env);
+    const priced = offers(env);
 
     if (url.pathname === '/' && request.method === 'GET') return page(url.host);
+    // What is on sale, what it costs, and what happens to the money — before anything is called.
+    if (url.pathname === '/.well-known/tollstile' && request.method === 'GET') {
+      return Response.json(catalog(env), { headers: { 'cache-control': 'public, max-age=60', 'access-control-allow-origin': '*' } });
+    }
     if (url.pathname === '/api/charges' && request.method === 'GET') return recentCharges(env);
     if (url.pathname === '/mcp') return mcp(request, env);
 
     if (url.pathname === '/v1/forecast' && request.method === 'GET') {
-      return paid(toll.price('$0.01'), (paidRequest) => Response.json(forecast(new URL(paidRequest.url).searchParams.get('city') ?? 'Tokyo')))(request);
+      return paid(priced.forecast.gate, (paidRequest) => Response.json(forecast(new URL(paidRequest.url).searchParams.get('city') ?? 'Tokyo')))(request);
     }
 
     // A price computed from the body: the quote commits to it, so a paid retry must send the same text.
     if (url.pathname === '/v1/translate' && request.method === 'POST') {
-      return paid(toll.price(pricePerWord), async (paidRequest) => Response.json(translate(await paidRequest.text())))(request);
+      return paid(priced.translate.gate, async (paidRequest) => Response.json(translate(await paidRequest.text())))(request);
     }
 
     // A maximum the payer authorizes; the handler charges what it used.
     if (url.pathname === '/v1/summarize' && request.method === 'POST') {
       return paid(
-        toll.price(upTo('$0.50'), { access: [credits({ balance }), payPerCall()] }),
+        priced.summarize.gate,
         async (paidRequest, { payment }) => {
           const text = await paidRequest.text();
           const result = summarize(text, 2);

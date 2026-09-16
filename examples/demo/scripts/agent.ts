@@ -40,8 +40,15 @@ client.setRequestHandler(ElicitRequestSchema, async ({ params }) => {
 await client.connect(new StreamableHTTPClientTransport(new URL(url)) as Transport);
 console.log(`connected to ${url}, budget ${formatMoney(budget)}\n`);
 
-console.log('pricing (free)');
-console.log(indent(textOf((await client.callTool({ name: 'pricing' })) as CallToolResult)));
+// Read the price list before buying anything, the way a person reads a menu.
+const menu = (await (await fetch(new URL('/.well-known/tollstile', url))).json()) as {
+  offers: { call: string; price: string; plan: { pricing: string; access: string[]; rails: { rail: string; flow: string }[] } }[];
+};
+console.log('on sale here');
+for (const offer of menu.offers) {
+  const access = offer.plan.access.length === 0 ? 'everyone pays' : offer.plan.access.join(' → ');
+  console.log(`  ${offer.call.padEnd(26)} ${offer.price.padEnd(34)} ${offer.plan.pricing} · ${access} · ${offer.plan.rails.map((r) => `${r.rail}/${r.flow}`).join(', ')}`);
+}
 
 console.log('\nforecast');
 await pay('forecast', {});

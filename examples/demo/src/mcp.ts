@@ -2,10 +2,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { paidTool } from '@tollstile/mcp';
-import { formatMoney, money, upTo } from 'tollstile';
+import { formatMoney, money } from 'tollstile';
 import { z } from 'zod';
+import { offers } from './catalog';
 import { forecast, summarize, words } from './handlers';
-import { createToll, keepResult, type Env } from './toll';
+import { keepResult, type Env } from './toll';
 
 /** The header the worker uses to tell a session which id it was routed under. */
 const SESSION_ID = 'x-demo-session-id';
@@ -86,14 +87,14 @@ export class McpSession {
 
 /** The demo's paid tools, and the free one that explains them. */
 function tools(env: Env): McpServer {
-  const toll = createToll(env);
+  const priced = offers(env);
   const server = new McpServer({ name: 'tollstile-demo', version: '1.0.0' });
 
   paidTool(
     server,
     'forecast',
-    { description: 'Tomorrow in one word, for a city. Costs $0.01 per call.' },
-    toll.price('$0.01', { resource: 'tool:forecast' }),
+    { description: `${priced.toolForecast.description} Costs ${priced.toolForecast.price} per call.` },
+    priced.toolForecast.gate,
     (_args, { payment }) => {
       const result = forecast('Tokyo');
       return { content: [{ type: 'text' as const, text: `${result.city}: ${result.forecast} (paid via ${payment.via})` }] };
@@ -105,11 +106,8 @@ function tools(env: Env): McpServer {
   paidTool(
     server,
     'summarize',
-    {
-      description: 'Two sentences from any text. $0.001 per word, up to $0.50, and a person approves the maximum first.',
-      inputSchema: { text: z.string() },
-    },
-    toll.price(upTo('$0.50'), { resource: 'tool:summarize' }),
+    { description: `Two sentences from any text. ${priced.toolSummarize.price}, and a person approves the maximum first.`, inputSchema: { text: z.string() } },
+    priced.toolSummarize.gate,
     async ({ text }, { payment }) => {
       const result = summarize(text, 2);
       // The summary is kept under this charge's id, so a retry that lost its answer is told where it is.
@@ -129,17 +127,15 @@ function tools(env: Env): McpServer {
         {
           type: 'text' as const,
           text: [
-            'tools:',
-            '  forecast  — $0.01 per call',
-            "  summarize — $0.001 per word, up to $0.50, and only with a person's approval",
+            ...Object.values(priced).map(({ call, price, description }) => `${call} — ${price}\n  ${description}`),
             '',
-            'To pay, call the tool with _meta:',
-            '  { "tollstile/test-payment": "test" }',
+            'To pay, call the tool with _meta: { "tollstile/test-payment": "test" }.',
             'An unpaid call answers with the payment requirement in _meta["tollstile/payment-required"].',
-            'Retry safely with _meta["tollstile/idempotency-key"]: the same key is never charged twice.',
+            'Retry safely with _meta["tollstile/idempotency-key"]: the same key is never charged twice, and the answer',
+            'to the first call is named in `result`.',
             '',
-            'summarize is charged only after the client asks a person (MCP elicitation) and they accept.',
-            'A client that cannot ask is refused with access_denied, and nothing is charged.',
+            'The full catalogue, with what happens to the money on each route:',
+            '  GET https://demo.tollstile.com/.well-known/tollstile',
           ].join('\n'),
         },
       ],

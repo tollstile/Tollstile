@@ -89,6 +89,24 @@ describe('the demo worker', () => {
     expect(await (await call('/api/charges')).json()).toEqual({ charges: [] });
   });
 
+  it('publishes what is on sale, described by the gates that enforce it', async () => {
+    const catalog = (await (await call('/.well-known/tollstile')).json()) as {
+      offers: { call: string; price: string; plan: { route: string; pricing: string; access: string[]; rails: { rail: string }[] } }[];
+    };
+
+    expect(catalog.offers.map((offer) => offer.call)).toEqual([
+      'GET /v1/forecast?city=',
+      'POST /v1/translate',
+      'POST /v1/summarize',
+      'tool:forecast',
+      'tool:summarize',
+    ]);
+    // The plan is Tollstile's own account of the route, not a second description that could drift.
+    expect(catalog.offers[0]?.plan).toMatchObject({ pricing: 'fixed', rails: [{ rail: 'test' }] });
+    expect(catalog.offers[1]?.plan.pricing).toBe('computed');
+    expect(catalog.offers[2]?.plan).toMatchObject({ pricing: 'up_to', access: ['credits', 'payPerCall'] });
+  });
+
   it('answers 402, takes the quote, settles, and records the charge', async () => {
     const challenge = await call('/v1/forecast?city=Osaka');
     expect(challenge.status).toBe(402);
