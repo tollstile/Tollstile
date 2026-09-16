@@ -50,7 +50,10 @@ const HTML = String.raw`<!doctype html>
   <div class="log" id="log">Ready.</div>
 
   <h2>Or from your terminal</h2>
-  <pre># 402 Payment Required, with a signed quote
+  <pre># what is on sale, what it costs, and what happens to the money
+curl https://DEMO_HOST/.well-known/tollstile
+
+# 402 Payment Required, with a signed quote
 curl -i https://DEMO_HOST/v1/forecast?city=Osaka
 
 # pay it (the test rail takes "test quote=&lt;quote&gt;")

@@ -13,8 +13,15 @@ The rail is the **test rail**, so anyone can pay: send `Payment: test quote=<quo
 | `POST /mcp` | up to $0.50 per `summarize` call | A charge a person has to approve: the server asks over MCP elicitation, and a call they decline is released |
 | `GET /api/charges` | free | The ledger behind the live table on the page |
 | `GET /v1/results/:id` | free | What a paid call produced, by the reference a retry is handed in `already_paid` |
+| `GET /.well-known/tollstile` | free | What is on sale, what it costs, and what happens to the money — read before calling anything |
 
 Retries are safe everywhere: send `Idempotency-Key` (or `_meta["tollstile/idempotency-key"]`) and a repeat is answered `409 already_paid` instead of being charged again — with `result`, the reference to what the first call produced, so the answer is recovered rather than bought twice. The demo keeps those under the charge's own id; Tollstile stores the reference, never the result.
+
+## The price list
+
+Every priced thing here is defined once, in `src/catalog.ts`. The HTTP routes and the MCP tools take their gate from it, and `/.well-known/tollstile` describes those same gates — each entry carries Tollstile's own `plan`: whether the price is fixed, computed, or a maximum; which access policies are tried; which rails can serve it and when they settle. A price cannot drift from what is charged, because there is nothing to drift from.
+
+This is a proposal, not a standard. It exists because an agent that must contract with a provider before it can call anything is not buying software at the moment it needs it — and because the demo needed one place to keep prices.
 
 ## The agent
 
