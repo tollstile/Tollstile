@@ -86,7 +86,7 @@ paidTool(server, 'forecast', config, gate, handler, {
 | The client | What it gets |
 |---|---|
 | Declared `capabilities.elicitation.url` | JSON-RPC error `-32042` carrying the page, per MCP's URL elicitation: the client shows its user the link and stops |
-| Anything else, including a server that keeps no session | The usual denial, with `{ url, message }` in `_meta["tollstile/checkout"]` |
+| Anything else, including a server that keeps no session | The message and the URL as the result's **first content block**, so the model can tell the person; the denial body follows in the next block, and `_meta["tollstile/checkout"]` carries the page too |
 | Can pay for itself (`experimental.payment`, and a rail offers MPP) | Its own payment challenge. A client that can pay is never sent to a person |
 
 Return `null` for denials a page would not help with. The URL must be `http:` or `https:`. Unlike approval, this needs no session. [`examples/mcp/src/account-server.ts`](../../examples/mcp/src/account-server.ts) is the shape it is for.

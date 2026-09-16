@@ -1,4 +1,4 @@
-import { UrlElicitationRequiredError } from '@modelcontextprotocol/sdk/types.js';
+import { UrlElicitationRequiredError, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { TollstileError, type Denial } from 'tollstile';
 
 /** Where a person goes to pay, and what the client tells them before sending them there. */
@@ -25,6 +25,22 @@ export type CheckoutResolver = (denial: Denial) => Checkout | null | Promise<Che
 
 /** Where a denial carries the page, for clients that cannot open one themselves. */
 export const CHECKOUT_META = 'tollstile/checkout';
+
+/**
+ * The page, said out loud. A client that cannot open one usually does not render `_meta` either, so
+ * a person there is told the tool failed and never sees the link. Putting it in the content the
+ * model reads is the only way through such a client: the model can repeat it to them.
+ *
+ * The denial body keeps its own block, after this one, and `_meta` still carries it in full.
+ */
+export function withCheckout(result: CallToolResult, checkout: Checkout): CallToolResult {
+  const message = checkout.message ?? 'Payment is required to continue.';
+  return {
+    ...result,
+    content: [{ type: 'text', text: `${message}\n${checkout.url}` }, ...result.content],
+    _meta: { ...result._meta, [CHECKOUT_META]: { url: checkout.url, ...(checkout.message === undefined ? {} : { message: checkout.message }) } },
+  };
+}
 
 /**
  * MCP's URL elicitation: the client shows the person a link and stops, rather than handing the

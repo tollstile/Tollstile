@@ -11,7 +11,7 @@ import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/proto
 import type { CallToolResult, RequestInfo, ServerNotification, ServerRequest, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { idempotencyKeyOf, parseMoney, type Denial, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
 import { approve, type Approval, type ApprovalDecision } from './approval';
-import { checkUrl, urlElicitation, CHECKOUT_META, type CheckoutResolver } from './checkout';
+import { checkUrl, urlElicitation, withCheckout, type CheckoutResolver } from './checkout';
 import { isJsonObject, parseJsonObject, parseJsonValue } from './json-object';
 import { DENIAL_META, renderDenial } from './render-denial';
 
@@ -113,8 +113,9 @@ export function paidTool<
     });
 
     /**
-     * A client that can pay for itself is answered first and never sent to a person; a client with
-     * somewhere to send one gets the page; everything else gets the denial, with the page in `_meta`.
+     * A client that can pay for itself is answered first and never sent to a person; a client that can
+     * open a page gets one; everything else is told where to go in the text the model reads, since a
+     * client that renders neither is one where nobody would ever see it.
      */
     const deny = async (denial: Denial): Promise<CallToolResult> => {
       const rendering = renderDenial(denial, acceptsMpp(clientCapabilities));
@@ -123,7 +124,7 @@ export function paidTool<
       if (checkout === null) return rendering.result;
       checkUrl(checkout.url, name);
       if (capabilities?.elicitation?.url !== undefined) throw urlElicitation(checkout);
-      return { ...rendering.result, _meta: { ...rendering.result._meta, [CHECKOUT_META]: { ...checkout } } };
+      return withCheckout(rendering.result, checkout);
     };
 
     if (entry.kind === 'denied') return deny(entry.denial);
