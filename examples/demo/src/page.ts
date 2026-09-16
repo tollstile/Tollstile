@@ -24,6 +24,7 @@ const HTML = String.raw`<!doctype html>
   button.secondary { background: transparent; color: var(--ink); }
   button:disabled { opacity: .5; cursor: default; }
   .row { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+  [hidden] { display: none !important; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
   th { color: var(--ink-3); font-weight: 500; }
@@ -55,7 +56,11 @@ const HTML = String.raw`<!doctype html>
     <li><strong>The prices are published</strong> at <a href="/.well-known/tollstile">/.well-known/tollstile</a>, which every tool here is generated from.</li>
   </ul>
   <pre id="pending-command" hidden></pre>
-  <div class="row">
+  <div class="row" id="pending-actions" hidden>
+    <button id="payWaiting">Pay the call that is waiting</button>
+    <button class="secondary" data-close>Close</button>
+  </div>
+  <div class="row" id="generic-actions">
     <button data-run="payButton">Watch a call get paid for</button>
     <button class="secondary" data-close>Close</button>
   </div>
@@ -196,19 +201,41 @@ const quote = waiting.get('quote');
 if (quote) {
   const call = waiting.get('for') ?? 'a call';
   const price = waiting.get('price') ?? '';
+  const tool = call.startsWith('tool:');
+  const path = tool ? '' : call.replace(/^[A-Z]+ /, '');
+
   const pending = document.getElementById('pending');
   pending.innerHTML = 'Waiting on: <strong>' + call + '</strong>' + (price ? ' · ' + price : '');
   pending.hidden = false;
+
   // Out of the address bar and out of history: a quote in a URL is a quote in every back button,
   // every screenshot, and every log of every page this one links to.
   history.replaceState({}, '', location.pathname);
+
+  // The generic demo pays for a different request. Offering it to someone who arrived with one of
+  // their own is how they end up paying for the sample and wondering why nothing happened.
+  document.getElementById('generic-actions').hidden = true;
+  document.getElementById('pending-actions').hidden = false;
+
   const command = document.getElementById('pending-command');
-  const tool = call.startsWith('tool:');
-  const path = tool ? '' : call.replace(/^[A-Z]+ /, '');
   command.textContent = tool
-    ? 'Your agent has to call ' + call.slice(5) + ' again, with:\n\n  _meta: { "tollstile/test-payment": "test quote=' + quote.slice(0, 18) + '…" }\n\nThe quote is in the address bar; the whole of it goes in place of the …'
-    : 'curl -i -H "Payment: test quote=' + quote + '" \\\n  "' + location.origin + path + '"\n\n# The quote is bound to the exact request that was refused.\n# Send the same query string the agent sent, or it will not pay for it.';
+    ? 'Your agent has to call ' + call.slice(5) + ' again, with the payment attached:\n\n  _meta: { "tollstile/test-payment": "test quote=' + quote.slice(0, 18) + '…" }\n\nCalling it again without one only gets a new quote, which is what you have now.'
+    : 'curl -i -H "Payment: test quote=' + quote + '" \\\n  "' + location.origin + path + '"\n\n# The quote is bound to the exact request that was refused:\n# send the same query string your agent sent, or it pays for nothing.';
   command.hidden = false;
+
+  const payWaiting = document.getElementById('payWaiting');
+  if (tool) {
+    payWaiting.textContent = 'Only your agent can finish this call';
+    payWaiting.disabled = true;
+  } else {
+    payWaiting.onclick = async () => {
+      payWaiting.disabled = true;
+      const response = await fetch(path, { headers: { payment: 'test quote=' + quote } });
+      const body = await response.text();
+      command.textContent = response.status + (response.headers.get('payment-receipt') ? ' · receipt ' + response.headers.get('payment-receipt') : '') + '\n' + body
+        + '\n\nThat is what your agent would have received. Its own call is still waiting: it has to make it again.';
+    };
+  }
 }
 
 // Someone arriving from an agent's client lands on a hash, not on the page: say why they are here.
