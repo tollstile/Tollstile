@@ -3,7 +3,7 @@ import { credits, payPerCall, upTo, type Payment, type Principal, type Rail } fr
 import { forecast, pricePerWord, summarize, translate, words } from './handlers';
 import { mcp } from './mcp';
 import { page } from './page';
-import { createToll, credits as balance, type Env } from './toll';
+import { createToll, keepResult, readResult, credits as balance, type Env } from './toll';
 
 /** The demo's "member": callers who send this key draw from prepaid credits instead of paying. */
 const MEMBER_KEY = 'demo-member';
@@ -38,11 +38,19 @@ export default {
         async (paidRequest, { payment }) => {
           const text = await paidRequest.text();
           const result = summarize(text, 2);
-          await charge(payment, words(text));
+          await charge(env, payment, text, JSON.stringify(result));
           return Response.json(result);
         },
         { principal },
       )(request);
+    }
+
+    // What a paid call produced, by the reference a retry was handed in `already_paid`.
+    if (url.pathname.startsWith('/v1/results/') && request.method === 'GET') {
+      const content = await readResult(env, url.pathname.slice('/v1/results/'.length));
+      return content === undefined
+        ? Response.json({ error: { code: 'not_found', message: 'No result under that reference.' } }, { status: 404 })
+        : new Response(content, { headers: { 'content-type': 'application/json' } });
     }
 
     return Response.json({ error: { code: 'not_found', message: `No route for ${request.method} ${url.pathname}. See /` } }, { status: 404 });
@@ -54,10 +62,16 @@ export default {
   },
 };
 
-/** $0.001 per word, never more than the authorized maximum. */
-async function charge(payment: Payment<readonly Rail[]>, count: number): Promise<void> {
-  const micros = BigInt(Math.min(Math.max(count, 1), 500)) * 1_000n;
-  await payment.fulfill({ amount: `${(Number(micros) / 1_000_000).toFixed(3)} USD`, resultRef: `summaries/${String(count)}` });
+/**
+ * $0.001 per word, never more than the authorized maximum, and the result is kept under the charge's
+ * own id: a retry that lost its response is answered `already_paid` with a reference to it.
+ */
+async function charge(env: Env, payment: Payment<readonly Rail[]>, text: string, result: string): Promise<void> {
+  const micros = BigInt(Math.min(Math.max(words(text), 1), 500)) * 1_000n;
+  const amount = `${(Number(micros) / 1_000_000).toFixed(3)} USD`;
+  const chargeId = payment.chargeId;
+  if (chargeId === null) return payment.fulfill({ amount });
+  await payment.fulfill({ amount, resultRef: await keepResult(env, chargeId, result) });
 }
 
 /** The ledger, read straight from D1 for the live table on the page. */

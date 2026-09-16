@@ -29,7 +29,10 @@ describe('quotes', () => {
     const gate = toll.price('$0.01');
     const challenge = await call(gate);
     const token = String(challenge.body.quote);
-    const tampered = `${token.slice(0, -2)}${token.endsWith('A') ? 'B' : 'A'}${token.slice(-1)}`;
+    // Change the character being replaced, not the one after it: when they differed, the "tampered"
+    // token was the original, and the test failed because a valid quote was accepted.
+    const at = token.length - 2;
+    const tampered = `${token.slice(0, at)}${token[at] === 'A' ? 'B' : 'A'}${token.slice(at + 1)}`;
 
     const result = await call(gate, { payment: `test quote=${tampered}` });
     expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_invalid' } } });

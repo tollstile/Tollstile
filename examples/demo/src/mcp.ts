@@ -5,7 +5,7 @@ import { paidTool } from '@tollstile/mcp';
 import { formatMoney, money, upTo } from 'tollstile';
 import { z } from 'zod';
 import { forecast, summarize, words } from './handlers';
-import { createToll, type Env } from './toll';
+import { createToll, keepResult, type Env } from './toll';
 
 /** The header the worker uses to tell a session which id it was routed under. */
 const SESSION_ID = 'x-demo-session-id';
@@ -112,7 +112,10 @@ function tools(env: Env): McpServer {
     toll.price(upTo('$0.50'), { resource: 'tool:summarize' }),
     async ({ text }, { payment }) => {
       const result = summarize(text, 2);
-      await payment.fulfill({ amount: perWord(words(text)) });
+      // The summary is kept under this charge's id, so a retry that lost its answer is told where it is.
+      const amount = perWord(words(text));
+      const chargeId = payment.chargeId;
+      await payment.fulfill(chargeId === null ? { amount } : { amount, resultRef: await keepResult(env, chargeId, result.summary) });
       return { content: [{ type: 'text' as const, text: result.summary }] };
     },
     { approval: { message: (payment) => `Summarize this text for up to ${formatMoney(payment.amount)}?` } },

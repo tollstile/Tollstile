@@ -12,8 +12,9 @@ The rail is the **test rail**, so anyone can pay: send `Payment: test quote=<quo
 | `POST /mcp` | $0.01 per `forecast` call | The same thing over MCP: agents pay in `_meta`, and the receipt comes back in the result's `_meta` |
 | `POST /mcp` | up to $0.50 per `summarize` call | A charge a person has to approve: the server asks over MCP elicitation, and a call they decline is released |
 | `GET /api/charges` | free | The ledger behind the live table on the page |
+| `GET /v1/results/:id` | free | What a paid call produced, by the reference a retry is handed in `already_paid` |
 
-Retries are safe everywhere: send `Idempotency-Key` (or `_meta["tollstile/idempotency-key"]`) and a repeat is answered `409 already_paid` instead of being charged again.
+Retries are safe everywhere: send `Idempotency-Key` (or `_meta["tollstile/idempotency-key"]`) and a repeat is answered `409 already_paid` instead of being charged again — with `result`, the reference to what the first call produced, so the answer is recovered rather than bought twice. The demo keeps those under the charge's own id; Tollstile stores the reference, never the result.
 
 ## The agent
 

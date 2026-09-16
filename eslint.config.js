@@ -95,6 +95,11 @@ export default tseslint.config(
     rules: layerImports(['testing']),
   },
   {
+    // Benchmarks report their numbers to whoever ran them; that is their whole output.
+    files: ['packages/*/test/**/*.bench.test.ts'],
+    rules: { 'no-console': 'off' },
+  },
+  {
     files: ['packages/*/test/**/*.ts'],
     rules: {
       'no-restricted-properties': 'off',
