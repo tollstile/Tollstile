@@ -1,4 +1,5 @@
 export { type Approval, type ApprovalDecision } from './approval';
+export { type Checkout, type CheckoutResolver } from './checkout';
 export {
   paidTool,
   type PaidToolArgs,

@@ -9,8 +9,9 @@ import {
 } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { CallToolResult, RequestInfo, ServerNotification, ServerRequest, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import { idempotencyKeyOf, parseMoney, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
+import { idempotencyKeyOf, parseMoney, type Denial, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
 import { approve, type Approval, type ApprovalDecision } from './approval';
+import { checkUrl, urlElicitation, CHECKOUT_META, type CheckoutResolver } from './checkout';
 import { isJsonObject, parseJsonObject, parseJsonValue } from './json-object';
 import { DENIAL_META, renderDenial } from './render-denial';
 
@@ -33,6 +34,8 @@ export type PaidToolOptions = {
   readonly principal?: (extra: ToolExtra) => Principal | null | Promise<Principal | null>;
   /** Asks the person at the client to approve the charge before the tool runs. */
   readonly approval?: Approval;
+  /** Sends the person at the client to a page where they can pay, instead of denying a call they could fix. */
+  readonly checkout?: CheckoutResolver;
 };
 
 /** The SDK's request context for the tool call, plus the payment that admitted it. */
@@ -61,7 +64,8 @@ export type PaidToolHandler<Rails extends readonly Rail[], InputArgs extends und
  * Every denial rendered as a tool result carries that body in `_meta["tollstile/payment-required"]`.
  *
  * With `options.approval`, the person at the client is asked over MCP elicitation before the call is
- * charged, and a call they do not approve is released instead of settled.
+ * charged, and a call they do not approve is released instead of settled. With `options.checkout`,
+ * a denial sends that person to a page where they can pay, instead of to the model as an error.
  *
  * @example
  * ```ts
@@ -108,11 +112,21 @@ export function paidTool<
       extras: extra,
     });
 
-    if (entry.kind === 'denied') {
-      const rendering = renderDenial(entry.denial, acceptsMpp(clientCapabilities));
+    /**
+     * A client that can pay for itself is answered first and never sent to a person; a client with
+     * somewhere to send one gets the page; everything else gets the denial, with the page in `_meta`.
+     */
+    const deny = async (denial: Denial): Promise<CallToolResult> => {
+      const rendering = renderDenial(denial, acceptsMpp(clientCapabilities));
       if (rendering.kind === 'error') throw rendering.error;
-      return rendering.result;
-    }
+      const checkout = options.checkout === undefined ? null : await options.checkout(denial);
+      if (checkout === null) return rendering.result;
+      checkUrl(checkout.url, name);
+      if (capabilities?.elicitation?.url !== undefined) throw urlElicitation(checkout);
+      return { ...rendering.result, _meta: { ...rendering.result._meta, [CHECKOUT_META]: { ...checkout } } };
+    };
+
+    if (entry.kind === 'denied') return deny(entry.denial);
 
     const { pass } = entry;
     /**
@@ -144,12 +158,8 @@ export function paidTool<
     const result = await releaseOnThrow(() => handler(args as PaidToolArgs<InputArgs>, { ...extra, payment: pass.payment }));
 
     const { receipt, denial } = await pass.complete((await succeeded(result, registered.outputSchema)) ? 'succeeded' : 'failed');
-    if (denial !== null) {
-      // Settlement was rejected: the payer does not get the output, only a fresh challenge.
-      const rendering = renderDenial(denial, acceptsMpp(clientCapabilities));
-      if (rendering.kind === 'error') throw rendering.error;
-      return rendering.result;
-    }
+    // Settlement was rejected: the payer does not get the output, only a fresh challenge.
+    if (denial !== null) return deny(denial);
     if (Object.keys(receipt.meta).length === 0) return result;
     return { ...result, _meta: { ...result._meta, ...receipt.meta } };
   };

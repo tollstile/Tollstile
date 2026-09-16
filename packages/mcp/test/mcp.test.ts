@@ -18,7 +18,7 @@ import {
 } from 'tollstile';
 import { fakeClock } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
-import { paidTool, type Approval, type PaidToolOptions } from '../src/index';
+import { paidTool, type Approval, type CheckoutResolver, type PaidToolOptions } from '../src/index';
 
 const MPP_CHALLENGE = {
   id: 'ch_abc123',
@@ -685,5 +685,98 @@ describe('approval by the person at the client', () => {
     expect(result.isError).toBe(true);
     expect(test.effects).toMatchObject({ settlements: 0, releases: 1 });
     expect(ledger.charges().map((charge) => `${charge.payment}/${charge.fulfillment}`)).toEqual(['released/failed']);
+  });
+});
+
+describe('sending a person to a page where they can pay', () => {
+  const CREDITS = 'https://weather.example/credits';
+
+  function withCheckout(options: { readonly checkout: CheckoutResolver; readonly capabilities?: ClientCapabilities }) {
+    const test = testRail();
+    const clock = fakeClock();
+    const ledger = memoryLedger({ clock });
+    const toll = createTollstile({ rails: [test], ledger, clock, secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'weather', version: '1.0.0' });
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: options.capabilities ?? { elicitation: { url: {} } } });
+
+    let runs = 0;
+    paidTool(
+      server,
+      'forecast',
+      {},
+      toll.price('$0.01'),
+      () => {
+        runs += 1;
+        return { content: [{ type: 'text', text: 'clear' }] };
+      },
+      { checkout: options.checkout },
+    );
+
+    const call = async () => {
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+      return (await client.callTool({ name: 'forecast' })) as CallToolResult;
+    };
+
+    return { call, ledger, runs: () => runs };
+  }
+
+  it('answers a client that can open a page with the page, and charges nothing', async () => {
+    const { call, ledger, runs } = withCheckout({ checkout: () => ({ url: CREDITS, message: 'Add credit to keep calling.' }) });
+
+    await expect(call()).rejects.toMatchObject({
+      code: -32042,
+      data: { elicitations: [{ mode: 'url', url: CREDITS, message: 'Add credit to keep calling.', elicitationId: expect.any(String) as unknown }] },
+    });
+    expect(runs()).toBe(0);
+    expect(ledger.charges()).toHaveLength(0);
+  });
+
+  it('gives the denial, with the page in _meta, to a client that cannot open one', async () => {
+    const { call } = withCheckout({ checkout: () => ({ url: CREDITS }), capabilities: {} });
+
+    const result = await call();
+
+    expect(result.isError).toBe(true);
+    expect(denialOf(result)).toMatchObject({ error: { code: 'payment_required' } });
+    expect(result._meta?.['tollstile/checkout']).toEqual({ url: CREDITS });
+  });
+
+  it('leaves the denial alone when there is nowhere to send anyone', async () => {
+    const { call } = withCheckout({ checkout: () => null });
+
+    const result = await call();
+
+    expect(result._meta?.['tollstile/checkout']).toBeUndefined();
+    expect(denialOf(result)).toMatchObject({ error: { code: 'payment_required' } });
+  });
+
+  it('refuses a page a browser cannot open, and charges nothing', async () => {
+    const { call, ledger, runs } = withCheckout({ checkout: () => ({ url: 'javascript:alert(1)' }) });
+
+    const result = await call();
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/use an http or https URL/);
+    expect(runs()).toBe(0);
+    expect(ledger.charges()).toHaveLength(0);
+  });
+
+  it('lets a client that pays for itself pay, instead of sending its owner to a page', async () => {
+    const test = testRail();
+    const ledger = memoryLedger();
+    const toll = createTollstile({ rails: [test, mppRail()], ledger, secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'weather', version: '1.0.0' });
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: { ...PAYS_WITH_MPP, elicitation: { url: {} } } });
+    paidTool(server, 'forecast', {}, toll.price('$0.01'), () => ({ content: [{ type: 'text', text: 'clear' }] }), {
+      checkout: () => ({ url: CREDITS }),
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    await expect(client.callTool({ name: 'forecast' })).rejects.toMatchObject({
+      code: -32042,
+      data: { httpStatus: 402, challenges: [MPP_CHALLENGE] },
+    });
   });
 });
