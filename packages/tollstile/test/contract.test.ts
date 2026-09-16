@@ -84,6 +84,24 @@ describe('challenges', () => {
     expect(result).toMatchObject({ status: 503, body: { error: { code: 'payment_unavailable' } } });
     expect(errors()[0]).toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
   });
+
+  it('spreads the wait it asks for, so clients denied together do not return together', async () => {
+    const { toll, rail } = setup();
+    rail.simulate({ challenge: 'unavailable' });
+    const gate = toll.price('$0.01');
+
+    const waits = new Set<string>();
+    for (let i = 0; i < 40; i += 1) {
+      const result = await call(gate);
+      const wait = result.headers.get('retry-after') ?? '';
+      expect(Number(wait)).toBeGreaterThanOrEqual(3);
+      expect(Number(wait)).toBeLessThanOrEqual(7);
+      expect(result.body.retryAfter).toBe(Number(wait));
+      waits.add(wait);
+    }
+
+    expect(waits.size).toBeGreaterThan(1);
+  });
 });
 
 describe('requirements', () => {

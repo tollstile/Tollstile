@@ -70,11 +70,14 @@ async function pay(name: string, args: Record<string, unknown>): Promise<void> {
     return;
   }
 
-  const paid = (await client.callTool({
-    name,
-    arguments: args,
-    _meta: { 'tollstile/test-payment': `test quote=${required.quote}`, 'tollstile/idempotency-key': idempotencyKey },
-  })) as CallToolResult;
+  // The same proof and the same key every time: a retry is the same operation, never a second one.
+  const meta = { 'tollstile/test-payment': `test quote=${required.quote}`, 'tollstile/idempotency-key': idempotencyKey };
+  let paid = (await client.callTool({ name, arguments: args, _meta: meta })) as CallToolResult;
+  for (let attempt = 0; attempt < 3 && bodyOf(paid)?.error?.action === 'retry_later'; attempt += 1) {
+    console.log(`  ${denialOf(paid) ?? 'not yet'}`);
+    await waitToRetry(bodyOf(paid) ?? {}, attempt);
+    paid = (await client.callTool({ name, arguments: args, _meta: meta })) as CallToolResult;
+  }
 
   if (paid.isError === true) {
     console.log(`  not charged: ${denialOf(paid) ?? textOf(paid)}`);
@@ -86,12 +89,21 @@ async function pay(name: string, args: Record<string, unknown>): Promise<void> {
   console.log(indent(textOf(paid)));
   console.log(`  receipt ${String(paid._meta?.['tollstile/test-receipt'])}`);
 
-  const retry = (await client.callTool({
-    name,
-    arguments: args,
-    _meta: { 'tollstile/test-payment': `test quote=${required.quote}`, 'tollstile/idempotency-key': idempotencyKey },
-  })) as CallToolResult;
+  const retry = (await client.callTool({ name, arguments: args, _meta: meta })) as CallToolResult;
   console.log(`  same call, same idempotency key → ${denialOf(retry) ?? (retry.isError === true ? 'refused' : 'charged again')}`);
+}
+
+/**
+ * Waits the way a client should when a server says "later": the wait it asked for, doubled per
+ * attempt, with the whole of it random. Retrying on the exact second every other client picked is
+ * how a busy service is kept busy.
+ */
+async function waitToRetry(denial: { readonly retryAfter?: number }, attempt: number): Promise<void> {
+  const asked = (denial.retryAfter ?? 5) * 1000;
+  const ceiling = Math.min(asked * 2 ** attempt, 60_000);
+  const wait = Math.round(asked + Math.random() * (ceiling - asked));
+  console.log(`  waiting ${(wait / 1000).toFixed(1)}s before attempt ${String(attempt + 2)}`);
+  await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
 /** Tollstile's payment requirement, as every denial carries it. */
@@ -103,11 +115,18 @@ function challengeOf(result: CallToolResult): { readonly price: string; readonly
 }
 
 function denialOf(result: CallToolResult): string | undefined {
-  const body = result._meta?.['tollstile/payment-required'];
-  if (typeof body !== 'object' || body === null) return undefined;
-  const { error } = body as { error?: { code?: unknown; detail?: unknown } };
+  const body = bodyOf(result);
+  if (body === undefined) return undefined;
+  const { error } = body;
   if (typeof error?.code !== 'string') return undefined;
   return typeof error.detail === 'string' ? `${error.code} (${error.detail})` : error.code;
+}
+
+type DenialBody = { readonly error?: { code?: unknown; detail?: unknown; action?: unknown }; readonly retryAfter?: number };
+
+function bodyOf(result: CallToolResult): DenialBody | undefined {
+  const body = result._meta?.['tollstile/payment-required'];
+  return typeof body === 'object' && body !== null ? body : undefined;
 }
 
 function textOf(result: CallToolResult): string {

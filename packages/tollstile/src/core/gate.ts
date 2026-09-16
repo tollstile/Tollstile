@@ -1,6 +1,6 @@
 import type { ExecutionPlan, RailPlan } from './capabilities';
 import { canonicalJson, deriveId, hex, sha256, sha256Bytes } from './codec';
-import { denialError, denialHeaders, errorJson, statusFor, type DenialCode } from './denials';
+import { denialError, denialHeaders, errorJson, retryAfterSeconds, statusFor, type DenialCode } from './denials';
 import { TollstileError } from './errors';
 import { isValidIdempotencyKey } from './idempotency';
 import {
@@ -799,8 +799,10 @@ async function challenge(runtime: Runtime, route: Route, context: Context, probl
     message: `Payment required: ${formatMoney(priced.price)}${priced.variable ? ' at most' : ''} for ${context.resource}.`,
   };
   const error = denialError(code, 402, message, detail);
+  const retryAfter = error.action === 'retry_later' ? retryAfterSeconds() : null;
   const body: JsonObject = {
     error: errorJson(error),
+    ...(retryAfter === null ? {} : { retryAfter }),
     resource: context.resource,
     price: formatMoney(priced.price),
     variable: priced.variable,
@@ -817,16 +819,22 @@ async function challenge(runtime: Runtime, route: Route, context: Context, probl
     ...extra,
   };
   runtime.emit({ type: 'request.denied', resource: context.resource, status: 402, code });
-  return { kind: 'denied', denial: { status: 402, error, body, headers: denialHeaders(error), offers } };
+  return { kind: 'denied', denial: { status: 402, error, body, headers: denialHeaders(error, retryAfter), offers } };
 }
 
 /** A denial without a payment challenge. */
 function deny(runtime: Runtime, context: Context, problem: Problem): Denied {
   const status = problem.status ?? statusFor(problem.code);
   const error = denialError(problem.code, status, problem.message, problem.detail ?? null);
-  const body: JsonObject = { error: errorJson(error), resource: context.resource, ...problem.extra };
+  const retryAfter = error.action === 'retry_later' ? retryAfterSeconds() : null;
+  const body: JsonObject = {
+    error: errorJson(error),
+    ...(retryAfter === null ? {} : { retryAfter }),
+    resource: context.resource,
+    ...problem.extra,
+  };
   runtime.emit({ type: 'request.denied', resource: context.resource, status, code: problem.code });
-  return { kind: 'denied', denial: { status, error, body, headers: denialHeaders(error), offers: [] } };
+  return { kind: 'denied', denial: { status, error, body, headers: denialHeaders(error, retryAfter), offers: [] } };
 }
 
 /** A computed price is known per request; an `upTo()` result can only use rails planned for variable amounts. */
