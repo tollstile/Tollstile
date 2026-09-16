@@ -15,7 +15,7 @@ const perCall = toll.price("$0.05");       // fixed price
 const perUse = toll.price(upTo("$0.50"));  // settle what the handler used
 ```
 
-Wrap routes with an adapter such as [`@tollstile/hono`](https://www.npmjs.com/package/@tollstile/hono).
+Wrap routes with an adapter such as [`@tollstile/hono`](../hono).
 
 | Export | Purpose |
 |---|---|

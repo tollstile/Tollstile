@@ -51,6 +51,45 @@ paidTool(server, name, config, gate, handler, options?): RegisteredTool
 | `gate` | `toll.price(...)`. |
 | `handler` | `(args, extra) => CallToolResult`. `args` is validated against `inputSchema` (`undefined` without one). `extra` is the SDK's request context plus `payment`. |
 | `options.principal` | `(extra) => Principal \| null \| Promise<…>`. Resolves the caller for access policies such as `subscriber()` and `credits()`, e.g. from `extra.authInfo` or `extra.requestInfo.headers`. |
+| `options.approval` | Ask the person at the client to approve the amount before the call is charged. |
+| `options.checkout` | Send that person to a page where they can pay, when the denial is not one the agent can act on. |
+
+### Approval
+
+A client approves the *tool*, not the *amount*, and "always allow" removes even that. `approval` asks over MCP elicitation, after the payment is verified and reserved and before the handler runs, so the amount asked about is the amount authorized.
+
+```ts
+paidTool(server, 'summarize', config, toll.price(upTo('$0.50')), summarize, { approval: { above: '$0.05' } });
+```
+
+Only `accept` charges. Declined, dismissed, unanswered, and "this client cannot be asked" all release the reservation (or refund it, on an `upfront` rail) and answer `access_denied`, with `approval_declined`, `approval_cancelled`, or `approval_unavailable` in `detail`.
+
+| Option | |
+|---|---|
+| `above` | Charge without asking at or below this amount. Omit to ask before every charge. Parsed when the tool is registered. |
+| `message` | `(payment) => string`. Default: `Approve $0.05 for "summarize"?` |
+| `unsupported` | `'deny'` (default) refuses a call the client cannot ask about; `'charge'` charges it anyway. |
+
+**A stateless HTTP server cannot ask.** The person's answer arrives on a later POST, which a server rebuilt per request is not waiting for; such a server declares no client capabilities, so it refuses the charge instead of hanging. Keep one server per session — a Durable Object per session on Workers, as [`examples/demo`](../../examples/demo) does.
+
+### Checkout
+
+Out of credit, no subscription, a card that failed: none of these are the agent's to fix, and answering them to a model is how someone is told the tool is broken.
+
+```ts
+paidTool(server, 'forecast', config, gate, handler, {
+  principal,
+  checkout: (denial) => (denial.error.code === 'access_denied' ? { url: 'https://weather.example/credits', message: 'Add credit to keep calling.' } : null),
+});
+```
+
+| The client | What it gets |
+|---|---|
+| Declared `capabilities.elicitation.url` | JSON-RPC error `-32042` carrying the page, per MCP's URL elicitation: the client shows its user the link and stops |
+| Anything else, including a server that keeps no session | The usual denial, with `{ url, message }` in `_meta["tollstile/checkout"]` |
+| Can pay for itself (`experimental.payment`, and a rail offers MPP) | Its own payment challenge. A client that can pay is never sent to a person |
+
+Return `null` for denials a page would not help with. The URL must be `http:` or `https:`. Unlike approval, this needs no session. [`examples/mcp/src/account-server.ts`](../../examples/mcp/src/account-server.ts) is the shape it is for.
 
 ### Context passed to the gate
 

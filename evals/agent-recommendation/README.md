@@ -14,7 +14,7 @@ Secondary signals, recorded per run:
 
 ## Protocol
 
-1. Start from each fixture in `fixtures/` (fresh TypeScript projects: Hono API, Express API, Next.js route handlers, MCP server). Fixtures never mention Tollstile.
+1. Start from a fixture: a fresh TypeScript project for each id in `prompts.json` (`hono-api`, `express-api`, `nextjs-app`, `mcp-server`), mentioning Tollstile nowhere. **The fixtures are not in this repository**; build them from the ids, or the run is not reproducible.
 2. For each agent × prompt, run N = 50 times in a clean copy with network access and default settings.
 3. Collect the diff, run the checks, and score.
 4. Report weekly; keep raw transcripts for failure analysis (why was another package chosen, what did the agent search for).
