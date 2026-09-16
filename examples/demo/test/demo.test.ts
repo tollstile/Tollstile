@@ -100,6 +100,7 @@ describe('the demo worker', () => {
       'POST /v1/translate',
       'POST /v1/summarize',
       'tool:forecast',
+      'tool:forecast_week',
       'tool:summarize',
     ]);
     // The plan is Tollstile's own account of the route, not a second description that could drift.
@@ -214,6 +215,14 @@ describe('the demo worker', () => {
     const unpaid = await tool({ session: await open(), name: 'forecast' });
 
     expect(unpaid._meta?.['tollstile/checkout']).toMatchObject({ url: 'https://demo.tollstile.com/#pay' });
+  });
+
+  it('asks before spending the demo credit, and spends nothing when nobody can be asked', async () => {
+    const paid = await tool({ session: await open(), name: 'forecast_week' });
+
+    expect(paid._meta?.['tollstile/payment-required']).toMatchObject({ error: { code: 'access_denied', detail: 'approval_unavailable' } });
+    const { charges } = (await (await call('/api/charges')).json()) as { charges: { payment: string; resource: string }[] };
+    expect(charges).toEqual([expect.objectContaining({ resource: 'tool:forecast_week', payment: 'released' })]);
   });
 
   it('refuses to charge a tool that needs approval when the client cannot ask anyone', async () => {

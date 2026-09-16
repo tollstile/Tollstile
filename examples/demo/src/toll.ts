@@ -13,6 +13,12 @@ export type Env = {
 export const credits = memoryBalance({ demo_member: '$5.00' });
 
 /**
+ * A dollar the demo gives every visitor, so a tool can be tried without paying for it. Spending it
+ * still asks: money that is not yours to take quietly is the point, not the price.
+ */
+export const guests = memoryBalance({ demo_guest: '$1.00' });
+
+/**
  * One Tollstile instance per request. The rail is the test rail, so anyone can pay here with a
  * header instead of a wallet; the ledger is the real SQLite ledger on D1.
  */

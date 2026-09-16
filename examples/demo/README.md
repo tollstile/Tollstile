@@ -10,6 +10,7 @@ The rail is the **test rail**, so anyone can pay: send `Payment: test quote=<quo
 | `POST /v1/translate` | $0.001 per word | A price computed from the body. The quote binds to that body, so a cheap quote cannot pay for a bigger request |
 | `POST /v1/summarize` | up to $0.50 | `upTo()`: the handler reports what it used and only that is charged. `x-api-key: demo-member` draws on prepaid credits instead |
 | `POST /mcp` | $0.01 per `forecast` call | The same thing over MCP: agents pay in `_meta`, and the receipt comes back in the result's `_meta` |
+| `POST /mcp` | $0.25 per `forecast_week` call, from the demo's credit | Nothing to pay, and still not spent without a person's approval: the shortest way to see what approval looks like in your client |
 | `POST /mcp` | up to $0.50 per `summarize` call | A charge a person has to approve: the server asks over MCP elicitation, and a call they decline is released |
 | `GET /api/charges` | free | The ledger behind the live table on the page |
 | `GET /v1/results/:id` | free | What a paid call produced, by the reference a retry is handed in `already_paid` |
