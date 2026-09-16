@@ -143,6 +143,22 @@ function tools(env: Env): McpServer {
     { approval: { message: (payment) => `Summarize this text for up to ${formatMoney(payment.amount)}?` }, checkout },
   );
 
+  // Nothing to pay here, and still nobody's to spend quietly: the client asks a person first.
+  paidTool(
+    server,
+    'forecast_week',
+    { description: `Seven days for a city. ${priced.toolWeek.price} — no payment, but your approval.` },
+    priced.toolWeek.gate,
+    () => {
+      const result = forecast('Tokyo');
+      return { content: [{ type: 'text' as const, text: `${result.city}, the week ahead: ${result.week.join(', ')}` }] };
+    },
+    {
+      approval: { message: (payment) => `Spend ${formatMoney(payment.amount)} of the demo's credit on a seven-day forecast?` },
+      checkout,
+    },
+  );
+
   server.registerTool(
     'pricing',
     { description: 'What this demo charges, how to pay for a tool call, and which calls a person has to approve. Free.' },

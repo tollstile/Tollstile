@@ -1,6 +1,6 @@
 import { credits, payPerCall, upTo, type Gate, type Rail } from 'tollstile';
 import { pricePerWord } from './handlers';
-import { createToll, credits as balance, type Env } from './toll';
+import { createToll, credits as balance, guests, type Env } from './toll';
 
 /**
  * Every priced thing in this demo, defined once. The routes and the MCP tools take their gate from
@@ -21,6 +21,7 @@ export type Offers = {
   readonly summarize: Offer;
   readonly toolForecast: Offer;
   readonly toolSummarize: Offer;
+  readonly toolWeek: Offer;
 };
 
 export function offers(env: Env): Offers {
@@ -49,6 +50,12 @@ export function offers(env: Env): Offers {
       price: '$0.01',
       description: 'The forecast, over MCP.',
       gate: toll.price('$0.01', { resource: 'tool:forecast' }),
+    },
+    toolWeek: {
+      call: 'tool:forecast_week',
+      price: '$0.25, from the demo credit',
+      description: "Seven days, not one. Nothing to pay: it is drawn from the $1 this demo gives every visitor — but it is still spent only after you approve it.",
+      gate: toll.price('$0.25', { resource: 'tool:forecast_week', access: [credits({ name: 'guest-credit', balance: guests, account: () => 'demo_guest' })] }),
     },
     toolSummarize: {
       call: 'tool:summarize',
