@@ -29,9 +29,48 @@ const HTML = String.raw`<!doctype html>
   .log { background: var(--paper-2); border: 1px solid var(--rule); padding: .75rem 1rem; min-height: 9rem; max-height: 22rem; overflow: auto; white-space: pre-wrap; word-break: break-word; }
   .note { color: var(--ink-3); font-size: 13px; }
   .scroll { overflow-x: auto; }
+  dialog { max-width: 34rem; width: calc(100% - 2rem); border: 1px solid var(--rule); background: var(--paper); color: var(--ink); padding: 1.5rem; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h2 { margin: 0 0 .75rem; font-size: 1.25rem; }
+  dialog p, dialog li { color: var(--ink-2); }
+  dialog ul { padding-left: 1.1rem; margin: 0 0 1.25rem; }
+  dialog li { margin-bottom: .5rem; }
+  dialog .row { margin: 0; }
 </style>
 </head>
 <body>
+<dialog id="paid-dialog">
+  <h2>Something you are running asked to be paid</h2>
+  <p>
+    An agent called a tool here, was told it costs money, and its client sent you to this page. That is what should happen: the model has no wallet, and paying is not its decision to make.
+  </p>
+  <p>
+    Paying here costs nothing. The rail is the <strong>test rail</strong> — a payment is a header, not a card. What it shows is the shape of the thing.
+  </p>
+  <ul>
+    <li><strong>Its client has to attach the payment</strong>, and no chat client does that yet. <a href="https://github.com/tollstile/tollstile/tree/main/examples/demo/scripts/agent.ts">This agent does</a>, with a budget it will not spend past.</li>
+    <li><strong>The prices are published</strong> at <a href="/.well-known/tollstile">/.well-known/tollstile</a>, which every tool here is generated from.</li>
+  </ul>
+  <div class="row">
+    <button data-run="payButton">Watch a call get paid for</button>
+    <button class="secondary" data-close>Close</button>
+  </div>
+</dialog>
+
+<dialog id="approval-dialog">
+  <h2>Why you were asked to approve something</h2>
+  <p>
+    A tool here is charged only after the person at the client accepts the amount. If yours could not ask you, it was refused instead of charged: nothing is spent by a call nobody agreed to.
+  </p>
+  <p>
+    Claude Code shows that question as a dialog. A client that cannot is told to send you here instead.
+  </p>
+  <div class="row">
+    <button data-run="upto">Authorize a maximum, pay what was used</button>
+    <button class="secondary" data-close>Close</button>
+  </div>
+</dialog>
+
 <main>
   <h1>A paid API you can pay for right now.</h1>
   <p>
@@ -39,28 +78,6 @@ const HTML = String.raw`<!doctype html>
     Every call below answers <code>402</code> with a signed quote, takes payment, settles, and writes the charge to the ledger you can watch at the bottom.
     The rail is the <strong>test rail</strong>, so paying costs nothing: send <code>Payment: test quote=…</code>.
   </p>
-
-  <section id="pay">
-    <h2>Something you are running asked to be paid</h2>
-    <p>
-      You are probably here because an agent called a tool on this demo and was told it costs money — and its client sent you to this page, which is exactly what should happen: the model has no wallet, and paying is not its decision to make.
-    </p>
-    <p>
-      Here, paying costs nothing. The rail is the <strong>test rail</strong>: a payment is a header, not a card. What it demonstrates is the shape of the thing, not the money.
-    </p>
-    <ul>
-      <li><strong>To see the whole flow</strong>, press the first button below: the call is refused, paid, and served, and the charge appears in the ledger at the bottom of this page.</li>
-      <li><strong>To let your agent through</strong>, its client has to attach the payment — no chat client does that yet. <a href="https://github.com/tollstile/tollstile/tree/main/examples/demo/scripts/agent.ts">This one does</a>, with a budget it will not spend past.</li>
-      <li><strong>To see the prices first</strong>, read <a href="/.well-known/tollstile">/.well-known/tollstile</a>, which every tool here is generated from.</li>
-    </ul>
-  </section>
-
-  <section id="approval">
-    <h2>Why you were asked to approve something</h2>
-    <p>
-      A tool here is charged only after the person at the client accepts the amount. If your client could not ask you, it was refused rather than charged: nothing is spent by a call nobody agreed to. Claude Code shows that question as a dialog; a client that cannot is told to send you here instead.
-    </p>
-  </section>
 
   <h2>Try it from this page</h2>
   <div class="row">
@@ -167,6 +184,22 @@ document.getElementById('upto').onclick = async () => {
   write('  Check the ledger: the charge is the amount the handler reported, not the maximum.');
   refresh();
 };
+
+// Someone arriving from an agent's client lands on a hash, not on the page: say why they are here.
+const dialogs = { '#pay': 'paid-dialog', '#approval': 'approval-dialog' };
+const openForHash = () => {
+  const dialog = document.getElementById(dialogs[location.hash] ?? '');
+  if (dialog && !dialog.open) dialog.showModal();
+};
+for (const dialog of document.querySelectorAll('dialog')) {
+  dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+  for (const button of dialog.querySelectorAll('[data-close]')) button.onclick = () => dialog.close();
+  for (const button of dialog.querySelectorAll('[data-run]')) {
+    button.onclick = () => { dialog.close(); document.getElementById(button.dataset.run).click(); document.getElementById('log').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  }
+}
+window.addEventListener('hashchange', openForHash);
+openForHash();
 
 const money = (micros, currency) => (currency === 'USD' ? '$' : currency + ' ') + (Number(micros) / 1_000_000).toFixed(3);
 const ago = (at) => { const seconds = Math.max(0, Math.round((Date.now() - Number(at)) / 1000)); return seconds < 60 ? seconds + 's ago' : Math.round(seconds / 60) + 'm ago'; };
