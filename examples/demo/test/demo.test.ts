@@ -197,6 +197,12 @@ describe('the demo worker', () => {
     expect(response.status).toBe(404);
   });
 
+  it('gives a client that cannot pay the page instead of an error the model would read out', async () => {
+    const unpaid = await tool({ session: await open(), name: 'forecast' });
+
+    expect(unpaid._meta?.['tollstile/checkout']).toMatchObject({ url: 'https://demo.tollstile.com/#pay' });
+  });
+
   it('refuses to charge a tool that needs approval when the client cannot ask anyone', async () => {
     const paid = await tool({
       session: await open(),
