@@ -4,6 +4,8 @@ const HTML = String.raw`<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- The checkout URL carries a quote. Nothing leaves this page carrying it in a Referer header. -->
+<meta name="referrer" content="no-referrer" />
 <title>Tollstile demo — a paid API you can pay for right now</title>
 <meta name="description" content="A live Tollstile demo on Cloudflare Workers and D1: 402 with a signed quote, pay, receipt, and the ledger updating." />
 <style>
@@ -197,6 +199,9 @@ if (quote) {
   const pending = document.getElementById('pending');
   pending.innerHTML = 'Waiting on: <strong>' + call + '</strong>' + (price ? ' · ' + price : '');
   pending.hidden = false;
+  // Out of the address bar and out of history: a quote in a URL is a quote in every back button,
+  // every screenshot, and every log of every page this one links to.
+  history.replaceState({}, '', location.pathname);
   const command = document.getElementById('pending-command');
   const tool = call.startsWith('tool:');
   const path = tool ? '' : call.replace(/^[A-Z]+ /, '');
