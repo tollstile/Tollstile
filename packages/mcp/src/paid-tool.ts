@@ -11,7 +11,8 @@ import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/proto
 import type { CallToolResult, RequestInfo, ServerNotification, ServerRequest, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { idempotencyKeyOf, parseMoney, type Denial, type Gate, type JsonObject, type Payment, type Principal, type Rail } from 'tollstile';
 import { approve, type Approval, type ApprovalDecision } from './approval';
-import { checkUrl, urlElicitation, withCheckout, type CheckoutResolver } from './checkout';
+import type { Checkout } from './checkout';
+import { checkUrl, showCheckout, urlElicitation, withCheckout, type CheckoutResolver } from './checkout';
 import { isJsonObject, parseJsonObject, parseJsonValue } from './json-object';
 import { DENIAL_META, renderDenial } from './render-denial';
 
@@ -124,6 +125,7 @@ export function paidTool<
       if (checkout === null) return rendering.result;
       checkUrl(checkout.url, name);
       if (capabilities?.elicitation?.url !== undefined) throw urlElicitation(checkout);
+      if (capabilities?.elicitation?.form !== undefined) await offerPage(extra, checkout);
       return withCheckout(rendering.result, checkout);
     };
 
@@ -189,6 +191,20 @@ async function succeeded(result: CallToolResult, outputSchema: AnySchema | undef
 function acceptsMpp(clientCapabilities: JsonObject): boolean {
   const { experimental } = clientCapabilities;
   return experimental !== undefined && isJsonObject(experimental) && experimental.payment !== undefined;
+}
+
+/**
+ * Puts the page on screen through the mode the client does support. Nothing is reserved at this
+ * point and nothing is charged either way, so a client that cannot show it still gets its denial.
+ */
+async function offerPage(extra: ToolExtra, checkout: Checkout): Promise<void> {
+  // catch-reason: showing the page is a courtesy this adapter offers; the answer to the call is the
+  // denial, and a client that fails to display a question must not turn that into an error instead.
+  try {
+    await showCheckout(extra, checkout);
+  } catch {
+    return;
+  }
 }
 
 /** The person was asked and did not approve, or could not be asked: the reservation was released and nothing was charged. */
