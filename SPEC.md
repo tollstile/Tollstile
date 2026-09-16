@@ -316,7 +316,7 @@ A `402` additionally carries `price`, `variable`, `quote`, `nonce`, `expiresAt`,
 | `payment_outcome_unknown` | 503 | yes | retry_later | settlement outcome unknown; retry with the same proof and key |
 | `requirement_unavailable` | 503 | yes | retry_later | a requirement cannot check its evidence now |
 
-`409` and `503` responses SHOULD carry `Retry-After`. Rails MUST NOT invent denial codes; they report `invalid` with a `reason`, which core places in `detail` under `proof_invalid` (or `quote_invalid` when the quote could not be opened).
+`409` and `503` responses SHOULD carry `Retry-After`, and the body of any `retry_later` denial SHOULD carry the same wait as `retryAfter` (seconds), for transports without headers. The value is spread around a mean rather than fixed, so that clients denied at the same instant do not return at the same one. Rails MUST NOT invent denial codes; they report `invalid` with a `reason`, which core places in `detail` under `proof_invalid` (or `quote_invalid` when the quote could not be opened).
 
 ---
 

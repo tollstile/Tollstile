@@ -114,7 +114,13 @@ describe('idempotency keys', () => {
     const retry = await gate.enter(httpContext(request()));
 
     expect(retry).toMatchObject({ kind: 'denied', denial: { status: 409, error: { code: 'request_in_progress', action: 'retry_later' } } });
-    if (retry.kind === 'denied') expect(retry.denial.headers).toContainEqual(['retry-after', '5']);
+    if (retry.kind === 'denied') {
+      // Spread around RETRY_AFTER_SECONDS, and the header and the body name the same wait.
+      const wait = Number(retry.denial.headers.find(([name]) => name === 'retry-after')?.[1]);
+      expect(wait).toBeGreaterThanOrEqual(3);
+      expect(wait).toBeLessThanOrEqual(7);
+      expect(retry.denial.body.retryAfter).toBe(wait);
+    }
     expect((await first.pass.complete('succeeded')).settlement).toBe('settled');
   });
 

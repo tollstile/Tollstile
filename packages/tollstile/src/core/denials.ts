@@ -70,8 +70,21 @@ const BEHAVIOR = {
   requirement_unavailable: LATER,
 } as const satisfies Record<DenialCode, Behavior>;
 
-/** Seconds a client should wait before retrying a `retry_later` denial. */
+/**
+ * Seconds a client waits before retrying a `retry_later` denial, on average. The value sent is
+ * spread around it: clients denied at the same instant would otherwise all return at the same one.
+ */
 export const RETRY_AFTER_SECONDS = 5;
+
+/** Half the width of that spread, so a wait is `RETRY_AFTER_SECONDS` ± this. */
+const RETRY_AFTER_SPREAD = 2;
+
+/** The wait for one denial. Both the `Retry-After` header and the body carry this same number. */
+export function retryAfterSeconds(): number {
+  const range = RETRY_AFTER_SPREAD * 2 + 1;
+  const [byte = 0] = crypto.getRandomValues(new Uint8Array(1));
+  return RETRY_AFTER_SECONDS - RETRY_AFTER_SPREAD + (byte % range);
+}
 
 export function statusFor(code: DenialCode): number {
   return BEHAVIOR[code].status;
@@ -90,9 +103,9 @@ export function denialError(code: DenialCode, status: number, message: string, d
   return { code, retryable: action !== 'stop' && action !== 'fix_request', action, message, detail };
 }
 
-export function denialHeaders(error: DenialError): readonly Header[] {
+export function denialHeaders(error: DenialError, retryAfter: number | null): readonly Header[] {
   const headers: Header[] = [['cache-control', 'no-store']];
-  if (error.action === 'retry_later') headers.push(['retry-after', String(RETRY_AFTER_SECONDS)]);
+  if (retryAfter !== null && error.action === 'retry_later') headers.push(['retry-after', String(retryAfter)]);
   return headers;
 }
 
