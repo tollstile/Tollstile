@@ -4,7 +4,7 @@
 
 | Rail | MPP method / intent | Status |
 |---|---|---|
-| `mppStripe()` | `stripe` / `charge` (Shared Payment Tokens) | Stable wire, fakes only |
+| `mppStripe()` | `stripe` / `charge` (Shared Payment Tokens) | Verified in Stripe test mode |
 | `mppTempo()` | `tempo` / `charge` (TIP-20 transfer, pull and push) | Stable wire, fakes only |
 | `mppTempoSession()` | `tempo` / `session` v2 (payment channels, `voucher` action) | **Experimental** |
 
@@ -139,7 +139,7 @@ Options: `realm`, `secret`, `rpcUrl`, `chainId`, `recipient` (payee), `token`, `
 
 ## Verification status
 
-Everything here was tested **only against in-process fakes and published vectors**, never against Stripe or a Tempo node.
+**`mppStripe` has been verified against Stripe in test mode**, including retries, refunds, and reconciliation. The Tempo rails have not been run against a Tempo node: everything below for them was tested against in-process fakes and published vectors.
 
 **Rail conformance** (`railConformance()` from `tollstile/testing`, `test/conformance.test.ts`):
 

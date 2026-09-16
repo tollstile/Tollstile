@@ -69,7 +69,7 @@ The smoke test runs the same flows against the app on an ephemeral port, includi
 
 ## Use real payments
 
-> **Live verification status.** The x402 `exact` flow has been verified on Base Sepolia with x402.org, including a successful USDC transfer, replay rejection, handler failure and retry, and a restart with a persistent SQLite ledger. `upto`, reconciliation after an ambiguous settlement, and production providers remain to be verified. Every other rail is tested against fakes and published vectors only. Run the live checks below on a testnet before trusting any of it with money.
+> **Live verification status.** The x402 `exact` flow has been verified on Base Sepolia with x402.org, including a successful USDC transfer, replay rejection, handler failure and retry, and a restart with a persistent SQLite ledger. `upto`, reconciliation after an ambiguous settlement, and production providers remain to be verified. MPP Stripe has been verified in Stripe test mode, including retries, refunds, and reconciliation. Every other rail is tested against fakes and published vectors only. Run the live checks below on a testnet before trusting any of it with money.
 
 To accept USDC on Base Sepolia through x402:
 
