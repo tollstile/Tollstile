@@ -33,10 +33,12 @@ The smoke test connects a client to the server in process over `InMemoryTranspor
 | File | |
 |---|---|
 | `src/toll.ts` | The Tollstile instance: rail and ledger. |
+| `src/account-server.ts` | The other way to charge for a tool: identify the caller, draw on the balance they already bought, and send them to top up when it runs out. No rail, no `_meta`, no wallet — see [Sell an MCP server to people](https://tollstile.com/docs/guides/sell-an-mcp-server-to-people). |
 | `src/mcp-server.ts` | `createServer()`: an `McpServer` with the paid `forecast` tool. |
 | `src/server.ts` | Serves it over stdio. |
 | `src/agent.ts` | A client that calls the tool, reads the quote, pays with the test rail, and prints the result and receipt. |
 | `test/smoke.test.ts` | The payment-required → pay → result flow, and a forged quote. |
+| `test/account-server.test.ts` | A subscriber, someone with credit, someone out of it, and a caller with no account holding a valid payment. |
 
 ## Notes
 
@@ -46,7 +48,7 @@ The smoke test connects a client to the server in process over `InMemoryTranspor
 
 ## Use real payments
 
-> **Live rails have not yet been verified against real providers.** `@tollstile/x402` is tested against a fake facilitator, a fake chain, and the x402 reference library only, and the MCP adapter's x402 rendering has not been tried with a real x402 MCP client. Nothing in these examples has settled a real payment. Run the live checks below on a testnet before trusting it with money.
+> **What has and has not been verified.** `@tollstile/x402`'s `exact` flow has been run on Base Sepolia against the x402.org facilitator, including a real USDC transfer, replay rejection, and recovery across a process restart — see [Verification status](../../packages/x402/README.md#verification-status). What has **not** been tried is this adapter's x402 rendering against a real x402 MCP client, and nothing in these examples has settled a payment on a mainnet. Run the checks below on a testnet before trusting it with money.
 
 To accept USDC on Base Sepolia through x402:
 

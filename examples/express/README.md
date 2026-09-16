@@ -69,7 +69,7 @@ The smoke test runs the same flows against the app on an ephemeral port, includi
 
 ## Use real payments
 
-> **Live rails have not yet been verified against real providers.** `@tollstile/x402` is tested against a fake facilitator, a fake chain, and the x402 reference library only. Nothing in these examples has settled a real payment. Run the live checks below on a testnet before trusting it with money.
+> **Live verification status.** The x402 `exact` flow has been verified on Base Sepolia with x402.org, including a successful USDC transfer, replay rejection, handler failure and retry, and a restart with a persistent SQLite ledger. `upto`, reconciliation after an ambiguous settlement, and production providers remain to be verified. Every other rail is tested against fakes and published vectors only. Run the live checks below on a testnet before trusting any of it with money.
 
 To accept USDC on Base Sepolia through x402:
 

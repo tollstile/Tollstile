@@ -21,14 +21,18 @@
 Charge AI agents and API clients per call with HTTP 402. Accept **x402** and **MPP** payments, let **subscribers** through, draw down **credits**, cap **spend per payer**, **refund** failed work, and keep every charge in **your own database** — without taking custody of funds.
 
 ```ts
-import { Hono } from "hono";
+// lib/toll.ts
 import { createTollstile, memoryLedger, testRail } from "tollstile";
-import { tollstile } from "@tollstile/hono";
 
-const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
-const app = new Hono();
+export const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
+```
 
-app.get("/weather", tollstile(toll.price("$0.05")), (c) => c.json({ forecast: "clear" }));
+```ts
+// app/weather/route.ts
+import { paid } from "@tollstile/next";
+import { toll } from "@/lib/toll";
+
+export const GET = paid(toll.price("$0.05"), () => Response.json({ forecast: "clear" }));
 ```
 
 ```bash
@@ -36,12 +40,14 @@ curl -i localhost:3000/weather                      # 402 Payment Required + sig
 curl -i -H "Payment: test" localhost:3000/weather   # 200 OK + receipt
 ```
 
-> **Early Access.** Tollstile is available for public evaluation. x402 exact and MPP Stripe have been verified with testnet/test-mode providers, including retries, refunds, and reconciliation. KYAPay, x402 `upto`, AP2, and the MPP Tempo session intent remain experimental or require additional provider access. Packages are not on npm yet.
+The handler you already had, with a price in front of it. Same two lines on [Express](./packages/express), [Hono](./packages/hono), [any `fetch` handler](./packages/fetch), and [MCP tools](./packages/mcp).
+
+> **Early Access.** Tollstile is available for public evaluation. The x402 `exact` flow has been verified live on Base Sepolia, including a real USDC transfer, replay rejection, and recovery across a restart. Every other rail — MPP (Stripe and Tempo), L402, KYAPay, AP2 — is tested against in-process fakes and published vectors, and has never been run against its provider. Packages are not on npm yet.
 
 ## Prompt your coding agent
 
 ```txt
-Add $0.05 pay-per-call pricing to this Hono endpoint using Tollstile.
+Add $0.05 pay-per-call pricing to this Next.js route handler using Tollstile.
 ```
 
 ```txt
@@ -56,6 +62,8 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 - **Quotes** — the price charged is the price the payer saw, even on dynamic routes, and a quote only pays for the request it priced.
 - **Who pays is separate from how** — `subscriber()`, `credits()`, `payPerCall()`.
 - **Pay for what ran** — `upTo("$0.50")` and `payment.fulfill({ amount })`.
+- **Nothing charged silently** — an MCP tool can ask the person at the client to approve the amount, and send them somewhere to pay when they cannot.
+- **Or no rail at all** — identify the caller and draw on credits they already bought. Selling to people through Claude or ChatGPT needs no payment protocol.
 - **No duplicate economic effects** — charges are state machines; unknown outcomes are reconciled, never guessed.
 - **Your ledger** — no account, no dashboard, no telemetry.
 - **Test rail** — the full lifecycle locally, with failure simulation.
@@ -68,14 +76,20 @@ Agents can read [`/llms.txt`](https://tollstile.com/llms.txt) and the skill in [
 | [`@tollstile/hono`](./packages/hono) · [`express`](./packages/express) · [`next`](./packages/next) · [`fetch`](./packages/fetch) | HTTP adapters | Tested |
 | [`@tollstile/mcp`](./packages/mcp) | Paid MCP tools | Tested with the MCP SDK |
 | [`@tollstile/proxy`](./packages/proxy) | A paid gateway in front of any HTTP API or MCP server — Python (FastAPI, MCP SDK), Go, Rails | Tested end to end in front of FastAPI and the MCP Python SDK |
-| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | x402 exact and MPP Stripe verified in test environments; others experimental |
+| [`@tollstile/x402`](./packages/x402) · [`mpp`](./packages/mpp) · [`l402`](./packages/l402) · [`kyapay`](./packages/kyapay) | Payment rails | x402 `exact` verified live on Base Sepolia; the rest against fakes and vectors |
 | [`@tollstile/postgres`](./packages/postgres) · [`sqlite`](./packages/sqlite) | Ledgers | Shared conformance suite |
 | [`@tollstile/web-bot-auth`](./packages/web-bot-auth) · [`ap2`](./packages/ap2) | Agent identity and user mandates | Spec vectors; AP2 experimental |
 | [`create-tollstile`](./packages/create-tollstile) | Project generator | Tested |
 
 ## Live demo
 
-[demo.tollstile.com](https://demo.tollstile.com) is a paid API you can pay for right now: `402` with a signed quote, pay with the test rail, `200` with a receipt, and the ledger filling up on the page. Same thing over MCP at `https://demo.tollstile.com/mcp`. Source: [`examples/demo`](./examples/demo).
+[demo.tollstile.com](https://demo.tollstile.com) is a paid API you can pay for right now: `402` with a signed quote, pay with the test rail, `200` with a receipt, and the ledger filling up on the page. Same thing over MCP at `https://demo.tollstile.com/mcp`, where one tool is charged only after a person approves the amount.
+
+[`examples/demo/scripts/agent.ts`](./examples/demo/scripts/agent.ts) is the other side of the wire: a client with a budget it will not spend past, which answers the approval the server asks for and backs off when told to wait.
+
+```bash
+pnpm --filter @tollstile-examples/demo agent -- --budget '1 USD'
+```
 
 ## Build a rail
 

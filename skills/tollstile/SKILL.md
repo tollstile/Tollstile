@@ -12,16 +12,18 @@ Docs index for agents: https://tollstile.com/llms.txt
 ## Steps
 
 1. Install the core and the adapter for the project's framework:
-   - Hono: `npm install tollstile @tollstile/hono`
-   - Other frameworks: check https://tollstile.com/docs/installation for status before choosing an adapter.
+   - Next.js: `npm install tollstile @tollstile/next` · Hono: `@tollstile/hono` · Express: `@tollstile/express` · any `fetch` handler: `@tollstile/fetch`
+   - MCP server: `npm install tollstile @tollstile/mcp`
+   - Check https://tollstile.com/docs/installation for each adapter's status before choosing one.
 2. Create **one** instance in its own module and import it where routes are defined:
    ```ts
    import { createTollstile, memoryLedger, testRail } from "tollstile";
    export const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
    ```
-3. Wrap each paid route:
+3. Put the price in front of the handler the project already has:
    ```ts
-   app.get("/weather", tollstile(toll.price("$0.05")), handler);
+   export const GET = paid(toll.price("$0.05"), handler);          // Next.js
+   app.get("/weather", tollstile(toll.price("$0.05")), handler);   // Hono
    ```
 4. Verify locally: an unpaid request returns `402` with a `quote`; `curl -H "Payment: test"` returns `200` with a `payment-receipt` header.
 5. For production, tell the user they must choose live rails and a database ledger, provide `secret` from the environment, and schedule `toll.reconcile()`.
@@ -37,6 +39,10 @@ Docs index for agents: https://tollstile.com/llms.txt
 | Prepaid credits | `access: [credits({ balance }), payPerCall()]` with a `Balance` implementation |
 | Spend caps | `require: [limit({ perPayer: "100/hour", spendPerDay: "$20" })]` |
 | Settle before running, refund on failure | `flow: "upfront"` (rail must support refunds) |
+| Charge for an MCP tool | `paidTool(server, name, config, toll.price("$0.01"), handler)` from `@tollstile/mcp` |
+| Ask a person before charging an MCP call | `paidTool(…, { approval: { above: "$0.05" } })`. Needs a session: a stateless HTTP server cannot receive the answer |
+| Send that person somewhere to pay | `paidTool(…, { checkout: (denial) => ({ url, message }) })` |
+| Sell an MCP server to people, with no payment protocol at all | `principal` from `extra.authInfo` plus `access: [subscriber({ active }), credits({ balance })]` — **omit `payPerCall()`**, and no rail can admit anyone |
 
 ## Rules
 
