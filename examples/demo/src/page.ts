@@ -40,9 +40,31 @@ const HTML = String.raw`<!doctype html>
     The rail is the <strong>test rail</strong>, so paying costs nothing: send <code>Payment: test quote=…</code>.
   </p>
 
+  <section id="pay">
+    <h2>Something you are running asked to be paid</h2>
+    <p>
+      You are probably here because an agent called a tool on this demo and was told it costs money — and its client sent you to this page, which is exactly what should happen: the model has no wallet, and paying is not its decision to make.
+    </p>
+    <p>
+      Here, paying costs nothing. The rail is the <strong>test rail</strong>: a payment is a header, not a card. What it demonstrates is the shape of the thing, not the money.
+    </p>
+    <ul>
+      <li><strong>To see the whole flow</strong>, press the first button below: the call is refused, paid, and served, and the charge appears in the ledger at the bottom of this page.</li>
+      <li><strong>To let your agent through</strong>, its client has to attach the payment — no chat client does that yet. <a href="https://github.com/tollstile/tollstile/tree/main/examples/demo/scripts/agent.ts">This one does</a>, with a budget it will not spend past.</li>
+      <li><strong>To see the prices first</strong>, read <a href="/.well-known/tollstile">/.well-known/tollstile</a>, which every tool here is generated from.</li>
+    </ul>
+  </section>
+
+  <section id="approval">
+    <h2>Why you were asked to approve something</h2>
+    <p>
+      A tool here is charged only after the person at the client accepts the amount. If your client could not ask you, it was refused rather than charged: nothing is spent by a call nobody agreed to. Claude Code shows that question as a dialog; a client that cannot is told to send you here instead.
+    </p>
+  </section>
+
   <h2>Try it from this page</h2>
   <div class="row">
-    <button id="pay">402 → pay → 200</button>
+    <button id="payButton">402 → pay → 200</button>
     <button id="retry" class="secondary">Retry with the same idempotency key</button>
     <button id="swap" class="secondary">Pay a quote with a different body</button>
     <button id="upto" class="secondary">Authorize $0.50, charge what was used</button>
@@ -108,7 +130,7 @@ async function show(label, path, init) {
   return response;
 }
 
-document.getElementById('pay').onclick = async () => {
+document.getElementById('payButton').onclick = async () => {
   clear();
   const quote = (await challenge('/v1/forecast?city=Osaka')).quote;
   await show('GET /v1/forecast?city=Osaka  Payment: test quote=…', '/v1/forecast?city=Osaka', { headers: { payment: 'test quote=' + quote } });
