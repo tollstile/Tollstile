@@ -732,14 +732,25 @@ describe('sending a person to a page where they can pay', () => {
     expect(ledger.charges()).toHaveLength(0);
   });
 
-  it('gives the denial, with the page in _meta, to a client that cannot open one', async () => {
-    const { call } = withCheckout({ checkout: () => ({ url: CREDITS }), capabilities: {} });
+  it('tells a client that cannot open a page where to go, in words its model will read', async () => {
+    const { call } = withCheckout({ checkout: () => ({ url: CREDITS, message: 'Add credit to keep calling.' }), capabilities: {} });
 
     const result = await call();
 
     expect(result.isError).toBe(true);
+    // First, for the person: a client that renders no `_meta` would otherwise show them nothing.
+    expect(textOf(result)).toBe(`Add credit to keep calling.\n${CREDITS}`);
+    // The denial body is still there, whole, in its own block and in `_meta`.
+    const [, body] = result.content;
+    expect(JSON.parse(body?.type === 'text' ? body.text : '')).toEqual(denialOf(result));
     expect(denialOf(result)).toMatchObject({ error: { code: 'payment_required' } });
-    expect(result._meta?.['tollstile/checkout']).toEqual({ url: CREDITS });
+    expect(result._meta?.['tollstile/checkout']).toEqual({ url: CREDITS, message: 'Add credit to keep calling.' });
+  });
+
+  it('says something sensible when the merchant supplied no message', async () => {
+    const { call } = withCheckout({ checkout: () => ({ url: CREDITS }), capabilities: {} });
+
+    expect(textOf(await call())).toBe(`Payment is required to continue.\n${CREDITS}`);
   });
 
   it('leaves the denial alone when there is nowhere to send anyone', async () => {
