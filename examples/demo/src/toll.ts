@@ -27,3 +27,16 @@ export function createToll(env: Env): Tollstile<readonly Rail[]> {
     secret: env.TOLLSTILE_SECRET,
   });
 }
+
+/** Keeps what a paid call produced. `already_paid` hands a retry this reference; `GET /v1/results/:id` serves it. */
+export async function keepResult(env: Env, chargeId: string, content: string): Promise<string> {
+  await env.DB.prepare('INSERT OR REPLACE INTO demo_results (id, content, created_at) VALUES (?, ?, ?)')
+    .bind(chargeId, content, Date.now())
+    .all();
+  return `results/${chargeId}`;
+}
+
+export async function readResult(env: Env, id: string): Promise<string | undefined> {
+  const { results } = await env.DB.prepare('SELECT content FROM demo_results WHERE id = ?').bind(id).all<{ content: string }>();
+  return results[0]?.content;
+}

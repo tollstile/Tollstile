@@ -91,6 +91,13 @@ async function pay(name: string, args: Record<string, unknown>): Promise<void> {
 
   const retry = (await client.callTool({ name, arguments: args, _meta: meta })) as CallToolResult;
   console.log(`  same call, same idempotency key → ${denialOf(retry) ?? (retry.isError === true ? 'refused' : 'charged again')}`);
+
+  // A retry that lost its answer is told where the answer is, instead of paying for it again.
+  const kept = bodyOf(retry)?.result;
+  if (typeof kept === 'string') {
+    const response = await fetch(new URL(`/v1/${kept}`, url));
+    console.log(`  and where to find what it paid for: ${kept} → ${(await response.text()).trim()}`);
+  }
 }
 
 /**
@@ -122,7 +129,12 @@ function denialOf(result: CallToolResult): string | undefined {
   return typeof error.detail === 'string' ? `${error.code} (${error.detail})` : error.code;
 }
 
-type DenialBody = { readonly error?: { code?: unknown; detail?: unknown; action?: unknown }; readonly retryAfter?: number };
+type DenialBody = {
+  readonly error?: { code?: unknown; detail?: unknown; action?: unknown };
+  readonly retryAfter?: number;
+  /** Where the merchant kept what this charge already paid for. */
+  readonly result?: unknown;
+};
 
 function bodyOf(result: CallToolResult): DenialBody | undefined {
   const body = result._meta?.['tollstile/payment-required'];

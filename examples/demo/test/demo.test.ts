@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { sqliteSchema } from '@tollstile/sqlite';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import type { Env } from '../src/toll';
 function d1(): D1Database {
   const db = new DatabaseSync(':memory:');
   db.exec(sqliteSchema);
+  db.exec(readFileSync(new URL('../migrations/0002_results.sql', import.meta.url), 'utf8'));
   const statement = (sql: string, params: readonly (string | number | null)[] = []): D1PreparedStatement => ({
     bind: (...values) => statement(sql, values),
     all: () => Promise.resolve({ results: db.prepare(sql).all(...params) as never, success: true }),
@@ -125,6 +127,22 @@ describe('the demo worker', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('payment-receipt')).toBeNull();
+  });
+
+  it('hands a retry the reference to what it already paid for', async () => {
+    const body = 'One. Two. Three.';
+    const quote = await quoteOf(await call('/v1/summarize', { method: 'POST', body }));
+    const headers = { payment: `test quote=${quote}`, 'idempotency-key': 'summary-1' };
+    const paid = await call('/v1/summarize', { method: 'POST', body, headers });
+    expect(paid.status).toBe(200);
+
+    const retry = await call('/v1/summarize', { method: 'POST', body, headers });
+    const denial = (await retry.json()) as { error: { code: string }; result: string };
+    expect(denial.error.code).toBe('already_paid');
+    expect(denial.result).toMatch(/^results\/chg_/);
+
+    const recovered = await call(`/v1/${denial.result}`);
+    expect(await recovered.json()).toEqual(await paid.json());
   });
 
   it('answers a retry with the same idempotency key from the ledger', async () => {
