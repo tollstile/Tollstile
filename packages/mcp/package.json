@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Charge for MCP tools: paid tools for the MCP TypeScript SDK with x402, MPP, credits, and subscriptions. Payment challenges, receipts, and refunds handled for you.",
   "keywords": [
     "mcp",

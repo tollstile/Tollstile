@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/hono",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Hono middleware for Tollstile: charge per call for Hono routes on Node, Bun, Deno, and Cloudflare Workers with x402, MPP, credits, and subscriptions.",
   "keywords": [
     "hono",

@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/proxy",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Put a paid gateway in front of any HTTP API or MCP server — FastAPI, FastMCP, Rails, Go — and charge per route or per tool with x402, MPP, credits, and subscriptions. No code changes in the upstream service.",
   "keywords": [
     "proxy",

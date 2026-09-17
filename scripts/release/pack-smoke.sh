@@ -3,7 +3,7 @@
 # scripts/release/smoke.mjs against it.
 #
 #   scripts/release/pack-smoke.sh            # packed tarballs from this checkout
-#   scripts/release/pack-smoke.sh 0.1.1      # the given version from the npm registry
+#   scripts/release/pack-smoke.sh 0.1.2      # the given version from the npm registry
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
