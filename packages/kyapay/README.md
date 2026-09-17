@@ -1,6 +1,6 @@
 # @tollstile/kyapay
 
-A [Tollstile](../../README.md) rail that accepts Skyfire **KYAPay** `pay` and `kya-pay` tokens.
+A [Tollstile](https://github.com/tollstile/Tollstile) rail that accepts Skyfire **KYAPay** `pay` and `kya-pay` tokens.
 
 A KYAPay payment token is a funded hold minted by the buyer with Skyfire. The rail verifies the token on every request, runs your handler on a reservation, and then charges the delivered amount against the token with Skyfire's seller API. One token pays for many requests until its amount is used up or it expires.
 

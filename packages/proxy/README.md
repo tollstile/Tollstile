@@ -100,4 +100,4 @@ export default { fetch: createProxy({ toll, upstream: "https://internal.example"
 
 Tested with unit tests against a recorded upstream, and end to end in front of a real FastAPI app with the MCP Python SDK 2.2 (JSON and SSE responses, free and priced tools, `upTo` with the amount header). Not yet run in production or on Workers.
 
-Example: [`examples/proxy-python`](../../examples/proxy-python).
+Example: [`examples/proxy-python`](https://github.com/tollstile/Tollstile/tree/main/examples/proxy-python).
