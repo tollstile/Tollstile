@@ -26,6 +26,9 @@ declare global {
     get(id: DurableObjectId): { fetch(request: Request): Promise<Response> };
   };
 
+  /** Cloudflare's rate limiting binding: a fixed window per key, counted at the edge. */
+  type RateLimit = { limit(options: { readonly key: string }): Promise<{ readonly success: boolean }> };
+
   type ScheduledController = { readonly scheduledTime: number; readonly cron: string };
   type ExecutionContext = { waitUntil(promise: Promise<unknown>): void; passThroughOnException(): void };
 }

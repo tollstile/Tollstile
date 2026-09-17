@@ -4,6 +4,7 @@ import { catalog, offers } from './catalog';
 import { forecast, summarize, translate, words } from './handlers';
 import { mcp } from './mcp';
 import { page } from './page';
+import { overLimit, pruneLedger } from './limits';
 import { createToll, keepResult, readResult, type Env } from './toll';
 
 /** The demo's "member": callers who send this key draw from prepaid credits instead of paying. */
@@ -16,6 +17,9 @@ export { McpSession } from './mcp';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const limited = await overLimit(request, env);
+    if (limited !== null) return limited;
+
     const url = new URL(request.url);
     const priced = offers(env);
 
@@ -63,9 +67,9 @@ export default {
     return Response.json({ error: { code: 'not_found', message: `No route for ${request.method} ${url.pathname}. See /` } }, { status: 404 });
   },
 
-  /** Resolves anything a crashed isolate left behind. */
-  scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil(createToll(env).reconcile({ olderThanMs: 60_000 }));
+  /** Resolves anything a crashed isolate left behind, then clears what finished more than a day ago. */
+  scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(createToll(env).reconcile({ olderThanMs: 60_000 }).then(() => pruneLedger(env, event.scheduledTime)));
   },
 };
 

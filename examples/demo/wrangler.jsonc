@@ -7,6 +7,10 @@
   "observability": { "enabled": true },
   "routes": [{ "pattern": "demo.tollstile.com", "custom_domain": true }],
   "triggers": { "crons": ["*/5 * * * *"] },
+  "ratelimits": [
+    { "name": "CALLS", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+    { "name": "READS", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }
+  ],
   "durable_objects": { "bindings": [{ "name": "MCP_SESSIONS", "class_name": "McpSession" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["McpSession"] }],
   "d1_databases": [
