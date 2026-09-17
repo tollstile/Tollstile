@@ -9,6 +9,7 @@ import type { Balance, DynamicPrice, Gate, PriceInput, PriceOptions, Rail, Tolls
 const DEFAULT_PROVIDER_TIMEOUT_MS = 10_000;
 const DEFAULT_QUOTE_TTL_MS = 5 * 60_000;
 const DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024;
+const DEFAULT_RECONCILE_LIMIT = 500;
 /** Must exceed your slowest handler, or reconciliation can act on a request that is still running. */
 const DEFAULT_RECONCILE_AFTER_MS = 15 * 60_000;
 const MIN_SECRET_LENGTH = 32;
@@ -18,8 +19,11 @@ export type Tollstile<Rails extends readonly Rail[]> = {
   price(price: PriceInput | DynamicPrice, options?: PriceOptions): Gate<Rails>;
   /** Describes how a route runs a paid request on each rail, and why rails were excluded. */
   explain(gate: Gate<Rails>): string;
-  /** Resolves charges left mid-lifecycle. Run it on a schedule. */
-  reconcile(options?: { readonly olderThanMs?: number }): Promise<ReconcileReport>;
+  /**
+   * Resolves charges left mid-lifecycle. Run it on a schedule. Each run examines at most `limit`
+   * charges (500 by default), most recently updated first; `report.truncated` says to run again.
+   */
+  reconcile(options?: { readonly olderThanMs?: number; readonly limit?: number }): Promise<ReconcileReport>;
 };
 
 export function createTollstile<const Rails extends readonly Rail[]>(config: TollstileConfig<Rails>): Tollstile<Rails> {
@@ -81,7 +85,7 @@ export function createTollstile<const Rails extends readonly Rail[]>(config: Tol
     },
 
     reconcile(options = {}) {
-      return reconcile(runtime, options.olderThanMs ?? DEFAULT_RECONCILE_AFTER_MS);
+      return reconcile(runtime, options.olderThanMs ?? DEFAULT_RECONCILE_AFTER_MS, positiveInteger(options.limit ?? DEFAULT_RECONCILE_LIMIT, 'limit'));
     },
   };
 }

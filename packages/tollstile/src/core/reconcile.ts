@@ -34,13 +34,15 @@ export type ReconcileReport = {
   readonly charges: readonly ReconciledCharge[];
   /** Errors reported during the run, also delivered to `onEvent`. Messages never contain secrets. */
   readonly errors: readonly { readonly chargeId: string | null; readonly code: string; readonly message: string }[];
+  /** The run examined as many charges as it was allowed to; there may be more. Run again. */
+  readonly truncated: boolean;
 };
 
 /**
  * Resolves charges left mid-lifecycle by crashes or unknown provider outcomes. Outcomes are
  * never guessed: the provider is asked, and when the service may not exist, nothing is kept.
  */
-export async function reconcile(parent: Runtime, olderThanMs: number): Promise<ReconcileReport> {
+export async function reconcile(parent: Runtime, olderThanMs: number, limit: number): Promise<ReconcileReport> {
   const errors: ReconcileReport['errors'][number][] = [];
   const runtime: Runtime = {
     ...parent,
@@ -52,7 +54,7 @@ export async function reconcile(parent: Runtime, olderThanMs: number): Promise<R
     },
   };
   const before = new Date(runtime.clock.now().getTime() - olderThanMs);
-  const charges = await runtime.ledger.pendingCharges(before);
+  const charges = await runtime.ledger.pendingCharges(before, limit);
   const results: ReconciledCharge[] = [];
   let resolved = 0;
 
@@ -87,7 +89,7 @@ export async function reconcile(parent: Runtime, olderThanMs: number): Promise<R
     });
   }
 
-  return { examined: charges.length, resolved, pending: charges.length - resolved, charges: results, errors };
+  return { examined: charges.length, resolved, pending: charges.length - resolved, charges: results, errors, truncated: charges.length >= limit };
 }
 
 async function resolve(runtime: Runtime, executor: Executor, current: Current): Promise<void> {

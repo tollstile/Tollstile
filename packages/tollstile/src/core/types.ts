@@ -197,7 +197,12 @@ export type Ledger = LedgerReader &
     /** Replaces an authorization's rail data, e.g. to drop a signature once it can no longer be used. */
     replaceAuthorizationData(id: string, data: Json, at: Date): Promise<void>;
     /** Charges that are not terminal and were last updated before `before`. */
-    pendingCharges(before: Date): Promise<readonly Charge[]>;
+    /**
+     * Unfinished charges last updated before `before`, most recently updated first, at most `limit`.
+     * The order is the point: a charge touched recently is mid-lifecycle and worth a provider call;
+     * one nobody has touched in days is the one that cannot be resolved, and it is visited last.
+     */
+    pendingCharges(before: Date, limit: number): Promise<readonly Charge[]>;
   };
 
 // ─── Rails ────────────────────────────────────────────────────────────────────

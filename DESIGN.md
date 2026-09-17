@@ -304,7 +304,7 @@ type Ledger = LedgerReader & {
   createCharge(input: NewCharge): Promise<{ status: "created"; charge: Charge; authorization: Authorization } | { status: "insufficient" | "busy" | "inactive" }>;
   transitionCharge(id: string, from: ChargeStates, to: ChargeStates, at: Date, patch?: ChargePatch): Promise<{ status: "moved"; charge: Charge; authorization: Authorization } | { status: "conflict"; charge: Charge | undefined }>;
   replaceAuthorizationData(id: string, data: Json, at: Date): Promise<void>;
-  pendingCharges(before: Date): Promise<Charge[]>;
+  pendingCharges(before: Date, limit: number): Promise<Charge[]>; // most recently updated first
   claim(scope: string, key: string, expiresAt: Date): Promise<"claimed" | "exists">;
 };
 ```

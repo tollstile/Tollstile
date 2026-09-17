@@ -26,7 +26,7 @@ Wrap routes with an adapter such as [`@tollstile/hono`](../hono).
 | `createRail` | Build a rail for any payment protocol or provider ([guide](https://tollstile.com/docs/rails/build-a-rail)) |
 | `tollstile/testing` | `fakeClock`, `httpContext`, `mcpContext`, `railConformance` |
 
-Run reconciliation from a terminal or cron: `npx tollstile reconcile --config tollstile.config.mjs --older-than 15m` ([guide](https://tollstile.com/docs/guides/reconciliation)).
+Run reconciliation from a terminal or cron: `npx tollstile reconcile --config tollstile.config.mjs --older-than 15m` ([guide](https://tollstile.com/docs/guides/reconciliation)). Each run examines at most 500 charges, most recently updated first, and the CLI keeps going while `report.truncated` is true.
 
 Docs: https://tollstile.com/docs · For coding agents: https://tollstile.com/llms.txt
 

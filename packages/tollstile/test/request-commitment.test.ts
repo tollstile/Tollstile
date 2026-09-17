@@ -10,11 +10,12 @@ async function perWord(context: Context): Promise<string> {
 }
 
 const small = JSON.stringify({ text: 'hello' });
+// 5 MB, past the default body limit: every setup() here raises it, so what is tested is the quote's binding, not the limit.
 const huge = JSON.stringify({ text: 'word '.repeat(1_000_000).trim() });
 
 describe('request commitment', () => {
   it('rejects a cheap quote replayed with a larger body, before any charge', async () => {
-    const { toll, events, rail } = setup();
+    const { toll, events, rail } = setup({ config: { maxRequestBytes: 8 * 1024 * 1024 } });
     const gate = toll.price(perWord, { resource: 'translate' });
     const challenge = await call(gate, { path: '/translate', body: small });
     expect(challenge.body.price).toBe('$0.001');
@@ -26,7 +27,7 @@ describe('request commitment', () => {
   });
 
   it('accepts the quote when the same body is sent again, and the handler can still read it', async () => {
-    const { toll, rail } = setup();
+    const { toll, rail } = setup({ config: { maxRequestBytes: 8 * 1024 * 1024 } });
     const gate = toll.price(perWord, { resource: 'translate' });
     const challenge = await call(gate, { path: '/translate', body: small });
 
@@ -43,7 +44,7 @@ describe('request commitment', () => {
   });
 
   it('binds the query string and method', async () => {
-    const { toll } = setup();
+    const { toll } = setup({ config: { maxRequestBytes: 8 * 1024 * 1024 } });
     const gate = toll.price(() => '$0.01', { resource: 'search' });
     const challenge = await call(gate, { path: '/search?q=a' });
     const quote = String(challenge.body.quote);
@@ -72,7 +73,7 @@ describe('request commitment', () => {
   });
 
   it('lets a route bind only the fields that affect the price', async () => {
-    const { toll } = setup();
+    const { toll } = setup({ config: { maxRequestBytes: 8 * 1024 * 1024 } });
     const gate = toll.price(perWord, {
       resource: 'translate',
       commit: async (context) => ((await context.request?.json()) as { text: string }).text,
@@ -87,7 +88,7 @@ describe('request commitment', () => {
   });
 
   it('does not bind the body on fixed-price routes', async () => {
-    const { toll } = setup();
+    const { toll } = setup({ config: { maxRequestBytes: 8 * 1024 * 1024 } });
     const gate = toll.price('$0.01', { resource: 'translate' });
     const challenge = await call(gate, { path: '/translate', body: small });
 
@@ -96,7 +97,7 @@ describe('request commitment', () => {
   });
 
   it('charges reusable authorizations the current price of each request', async () => {
-    const { toll, rail } = setup({ rail: { authorization: 'reusable' } });
+    const { toll, rail } = setup({ rail: { authorization: 'reusable' }, config: { maxRequestBytes: 8 * 1024 * 1024 } });
     const gate = toll.price(perWord, { resource: 'translate' });
     const challenge = await call(gate, { path: '/translate', body: small });
     const payment = `test quote=${String(challenge.body.quote)} proof=credential limit=$0.01`;

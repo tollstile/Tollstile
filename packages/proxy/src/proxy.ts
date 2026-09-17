@@ -79,10 +79,8 @@ export function createProxy<Rails extends readonly Rail[]>(options: ProxyOptions
     if (mcpPath !== undefined && path.match === mcpPath && request.method === 'POST' && toolRoutes.size > 0) {
       const length = Number(request.headers.get('content-length') ?? '0');
       if (length > maxMcpBodyBytes) return proxyError(413, 'mcp_body_too_large', `MCP request bodies over ${String(maxMcpBodyBytes)} bytes are refused.`);
-      const text = await request.clone().text();
-      if (new TextEncoder().encode(text).byteLength > maxMcpBodyBytes) {
-        return proxyError(413, 'mcp_body_too_large', `MCP request bodies over ${String(maxMcpBodyBytes)} bytes are refused.`);
-      }
+      const text = await textWithin(request, maxMcpBodyBytes);
+      if (text === undefined) return proxyError(413, 'mcp_body_too_large', `MCP request bodies over ${String(maxMcpBodyBytes)} bytes are refused.`);
       const body = parseMcpBody(text);
       if (body.kind === 'batch' && body.tools.some((tool) => toolRoutes.has(tool))) {
         return proxyError(400, 'mcp_batch_unsupported', 'Priced tools cannot be called inside a JSON-RPC batch. Send each tool call on its own.');
@@ -259,4 +257,34 @@ function responseHeaders(response: Response): Headers {
 function proxyError(status: number, code: string, message: string, retryable = false): Response {
   const action = retryable ? 'retry_later' : status === 400 || status === 413 ? 'fix_request' : 'stop';
   return Response.json({ error: { code, retryable, action, message, detail: null } }, { status, headers: { 'cache-control': 'no-store' } });
+}
+
+/**
+ * Reads a copy of the body up to the limit, and no further: a request with no declared length
+ * cannot make the gateway hold more than this before it decides anything. `undefined` past the limit.
+ */
+async function textWithin(request: Request, max: number): Promise<string | undefined> {
+  const reader = request.clone().body?.getReader();
+  if (reader === undefined) return '';
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      // Not cancelled: cancelling one branch of a cloned body does not settle in Node's fetch while
+      // the other branch is unread. The copy is dropped with the refused request.
+      reader.releaseLock();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }

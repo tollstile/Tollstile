@@ -80,19 +80,17 @@ export function createGate<Rails extends readonly Rail[]>(runtime: Runtime, rout
     resource: route.resource,
     plan: route.plan,
     async enter(input) {
-      const context = route.resource === undefined ? input : { ...input, resource: route.resource };
-      if (context.idempotencyKey !== null && !isValidIdempotencyKey(context.idempotencyKey)) {
-        return deny(runtime, context, { code: 'invalid_request', message: 'An idempotency key must be 1 to 255 visible ASCII characters.' });
+      const input0 = route.resource === undefined ? input : { ...input, resource: route.resource };
+      if (input0.idempotencyKey !== null && !isValidIdempotencyKey(input0.idempotencyKey)) {
+        return deny(runtime, input0, { code: 'invalid_request', message: 'An idempotency key must be 1 to 255 visible ASCII characters.' });
       }
       // Before the body is read, the price computed, or a rail contacted: everything after this line
       // is work an unauthenticated caller asked for, and its size is theirs to choose until here.
-      if (declaredBytes(context) > runtime.maxRequestBytes) {
-        return deny(runtime, context, {
-          code: 'invalid_request',
-          message: `The request body is larger than this route will price (${String(runtime.maxRequestBytes)} bytes).`,
-          detail: 'request_too_large',
-        });
-      }
+      if (declaredBytes(input0) > runtime.maxRequestBytes) return tooLarge(runtime, input0);
+      // A body without a declared length is bounded while it is read, and only when the route will
+      // read it: what core prices, it holds in memory, and never more than maxRequestBytes of it.
+      const context = await boundedBody(input0, route, runtime);
+      if (context === 'too_large') return tooLarge(runtime, input0);
       if (route.access === undefined) return enterWithPayment<Rails>(runtime, route, context);
 
       let priced: Priced | undefined;
@@ -420,6 +418,52 @@ async function commitmentFor(route: Route, context: Context): Promise<string> {
     parts.push('custom', await route.commit(withReadableRequest(context)));
   }
   return hex(await sha256(JSON.stringify(parts)));
+}
+
+
+function tooLarge(runtime: Runtime, context: Context): Denied {
+  return deny(runtime, context, {
+    code: 'invalid_request',
+    message: `The request body is larger than this route will price (${String(runtime.maxRequestBytes)} bytes).`,
+    detail: 'request_too_large',
+  });
+}
+
+/**
+ * Replaces the request with one whose body is in memory and no larger than the limit, when the
+ * route will read it: a computed price, a commitment to the request, or an idempotency key (whose
+ * request hash covers the body). Routes that never read the body are left alone, and the caller's
+ * own request is untouched either way — the copy is read, and the original still streams to the
+ * handler.
+ */
+async function boundedBody(context: Context, route: Route, runtime: Runtime): Promise<Context | 'too_large'> {
+  const { request } = context;
+  if (request === null || request.body === null) return context;
+  if (route.price.kind !== 'dynamic' && route.commit === 'route' && context.idempotencyKey === null) return context;
+
+  const reader = readableCopy(request).body?.getReader();
+  if (reader === undefined) return context;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > runtime.maxRequestBytes) {
+      // Not cancelled: cancelling one branch of a cloned body does not settle in Node's fetch while
+      // the other branch is unread. The copy is dropped along with the denied request.
+      reader.releaseLock();
+      return 'too_large';
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ...context, request: new Request(request.url, { method: request.method, headers: request.headers, body }) };
 }
 
 /**

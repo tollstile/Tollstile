@@ -261,12 +261,13 @@ export function postgresLedger(options: PostgresLedgerOptions): Ledger {
     getAuthorization: (id) => readAuthorization(query, id),
     getCharge: (id) => readCharge(query, id),
 
-    async pendingCharges(before) {
+    async pendingCharges(before, limit) {
       const { rows } = await query(
         `SELECT ${CHARGE_COLUMNS} FROM ${tables.charges}
          WHERE ${nonTerminalCondition} AND updated_at < $1::timestamptz
-         ORDER BY updated_at, id`,
-        [before.toISOString()],
+         ORDER BY updated_at DESC, id DESC
+         LIMIT $2::int`,
+        [before.toISOString(), String(limit)],
       );
       return rows.map(parseCharge);
     },

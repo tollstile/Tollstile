@@ -257,11 +257,12 @@ export function sqliteLedger(options: SqliteLedgerOptions): Ledger {
       return row === undefined ? undefined : parseCharge(row);
     },
 
-    async pendingCharges(before) {
+    async pendingCharges(before, limit) {
       const rows = await execute(
         sql`SELECT ${raw(CHARGE_COLUMNS)} FROM ${charges}
             WHERE ${raw(nonTerminalCondition)} AND updated_at < ${before.getTime()}
-            ORDER BY updated_at, id`,
+            ORDER BY updated_at DESC, id DESC
+            LIMIT ${limit}`,
       );
       return rows.map(parseCharge);
     },

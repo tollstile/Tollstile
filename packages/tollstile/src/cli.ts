@@ -3,7 +3,10 @@ import { pathToFileURL } from 'node:url';
 import { formatMoney } from './core/money';
 import type { ReconcileReport } from './core/reconcile';
 
-type Reconciler = { reconcile(options?: { readonly olderThanMs?: number }): Promise<ReconcileReport> };
+type Reconciler = { reconcile(options?: { readonly olderThanMs?: number; readonly limit?: number }): Promise<ReconcileReport> };
+
+/** Runs past this many full pages are left for the next invocation, so a cron cannot run forever. */
+const MAX_ROUNDS = 20;
 
 const USAGE = `Usage: tollstile reconcile [options]
 
@@ -36,7 +39,17 @@ if (olderThanMs === undefined) {
 
 const configPath = resolve(option('--config') ?? 'tollstile.config.mjs');
 const toll = await loadReconciler(configPath);
-const report = await toll.reconcile({ olderThanMs });
+const rounds: ReconcileReport[] = [];
+do rounds.push(await toll.reconcile({ olderThanMs }));
+while (rounds.length < MAX_ROUNDS && (rounds.at(-1)?.truncated ?? false));
+const report: ReconcileReport = {
+  examined: rounds.reduce((sum, round) => sum + round.examined, 0),
+  resolved: rounds.reduce((sum, round) => sum + round.resolved, 0),
+  pending: rounds.reduce((sum, round) => sum + round.pending, 0),
+  charges: rounds.flatMap((round) => round.charges),
+  errors: rounds.flatMap((round) => round.errors),
+  truncated: rounds.at(-1)?.truncated ?? false,
+};
 
 if (args.includes('--json')) {
   console.log(JSON.stringify(report, (_key, value: unknown) => (typeof value === 'bigint' ? value.toString() : value), 2));
@@ -47,7 +60,7 @@ if (args.includes('--json')) {
     const mark = charge.after !== null && after !== `${charge.before.payment}/${charge.before.fulfillment}` ? '→' : '·';
     console.log(`  ${charge.id}  ${charge.resource}  ${formatMoney(charge.amount)}  ${charge.before.payment}/${charge.before.fulfillment} ${mark} ${after}`);
   }
-  console.log(`  ${String(report.resolved)} resolved · ${String(report.pending)} pending · ${String(report.errors.length)} error${report.errors.length === 1 ? '' : 's'}`);
+  console.log(`  ${String(report.resolved)} resolved · ${String(report.pending)} pending · ${String(report.errors.length)} error${report.errors.length === 1 ? '' : 's'}${report.truncated ? ' · more remain: run again' : ''}`);
   for (const error of report.errors) console.log(`  ! ${error.code}${error.chargeId === null ? '' : ` ${error.chargeId}`}: ${error.message}`);
 }
 
