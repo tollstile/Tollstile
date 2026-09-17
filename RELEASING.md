@@ -18,15 +18,15 @@ Packages are published with npm provenance, so users can verify each one was bui
 1. Set the version everywhere and review the diff:
 
    ```bash
-   pnpm -r --filter './packages/*' exec npm version 0.1.1 --no-git-tag-version
+   pnpm -r --filter './packages/*' exec npm version 0.1.2 --no-git-tag-version
    ```
 
 2. Commit, open a PR, and merge it once CI is green.
 3. Tag the merge commit and push the tag:
 
    ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.1.2
+   git push origin v0.1.2
    ```
 
 4. Watch the **Release** workflow. `verify` installs the published version from npm; the release is done when it is green.

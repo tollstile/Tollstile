@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/fetch",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Charge per call for Web-standard fetch handlers on Cloudflare Workers, Deno, and Bun with x402, MPP, credits, and subscriptions.",
   "keywords": [
     "fetch",

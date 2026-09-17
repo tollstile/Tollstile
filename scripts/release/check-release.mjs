@@ -1,6 +1,6 @@
 // Refuses a release that would publish packages users cannot install.
 //
-//   node scripts/release/check-release.mjs [--tag v0.1.1] [--registry]
+//   node scripts/release/check-release.mjs [--tag v0.1.2] [--registry]
 //
 // Without --registry: every package has the same version (matching --tag when given), and every
 // dependency or peer on a workspace package points at a package in the same release.

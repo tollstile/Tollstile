@@ -1,6 +1,6 @@
 {
   "name": "@tollstile/postgres",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Postgres ledger for Tollstile payments: authorizations, charges, and reconciliation in your own database. Works with pg, postgres.js, Neon, and PGlite.",
   "keywords": [
     "postgres",
