@@ -2,7 +2,7 @@
 
 Tollstile for Next.js App Router route handlers.
 
-`paid(gate, handler)` returns a route handler. Unpaid requests get a `402` with every rail's challenge; paid requests run your handler with the route `params` and `payment`, and the payment is completed — settled, or released — before the response is returned, with the rail's receipt headers on it. It has no dependency on `next`.
+`paid(gate, handler)` returns a route handler. Unpaid requests get a `402` with every rail's challenge; paid requests run your handler with the route `params` and `payment`, and the payment is completed — settled, or released — before the response is returned, with the rail's receipt headers on it. It imports nothing from `next`, so it works with any Next.js version whose route handlers take a Web `Request`.
 
 ## Install
 
@@ -65,4 +65,4 @@ curl -i -H "Payment: test" localhost:3000/reports/42   # 200 OK, Payment-Receipt
 
 Tested with Vitest by calling the exported handler the way Next.js does — `(request, { params: Promise })` — against `testRail()`, `memoryLedger()`, and `memoryBalance()`: the 402 → pay with the echoed quote → 200 round trip, params passthrough, receipts on immutable responses, releases on thrown errors and 4xx responses, a single `complete()` per request, principals reaching `credits()`, and assignability to the handler type Next.js checks for static, dynamic, and catch-all routes.
 
-Not run inside a Next.js application. To verify, add the example to a Next.js 15 app, run `next build` (which type-checks route exports) and `next dev`, then run the two `curl` commands: the first must return `402` with a `quote` in the body, the second `200` with a `payment-receipt` header.
+Run in a Next.js 15.5 application (`examples/nextjs`): `next build` type-checks and compiles the paid route, and against `next start` an unpaid `GET /api/weather` returns `402` with a `quote`, and the retry with `Payment: test quote=…` returns `200` with a `payment-receipt` header.
