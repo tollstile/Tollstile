@@ -70,7 +70,7 @@ Only `accept` charges. Declined, dismissed, unanswered, and "this client cannot 
 | `message` | `(payment) => string`. Default: `Approve $0.05 for "summarize"?` |
 | `unsupported` | `'deny'` (default) refuses a call the client cannot ask about — one that declared no `elicitation.form`; `'charge'` charges it anyway. |
 
-**A stateless HTTP server cannot ask.** The person's answer arrives on a later POST, which a server rebuilt per request is not waiting for; such a server declares no client capabilities, so it refuses the charge instead of hanging. Keep one server per session — a Durable Object per session on Workers, as [`examples/demo`](../../examples/demo) does.
+**A stateless HTTP server cannot ask.** The person's answer arrives on a later POST, which a server rebuilt per request is not waiting for; such a server declares no client capabilities, so it refuses the charge instead of hanging. Keep one server per session — a Durable Object per session on Workers, as [`examples/demo`](https://github.com/tollstile/Tollstile/tree/main/examples/demo) does.
 
 ### Checkout
 
@@ -90,7 +90,7 @@ paidTool(server, 'forecast', config, gate, handler, {
 | Anything else, including a server that keeps no session | The message and the URL as the result's **first content block**, so the model can tell the person; the denial body follows in the next block, and `_meta["tollstile/checkout"]` carries the page too |
 | Can pay for itself (`experimental.payment`, and a rail offers MPP) | Its own payment challenge. A client that can pay is never sent to a person |
 
-Return `null` for denials a page would not help with. The URL must be `http:` or `https:`. Unlike approval, this needs no session. [`examples/mcp/src/account-server.ts`](../../examples/mcp/src/account-server.ts) is the shape it is for.
+Return `null` for denials a page would not help with. The URL must be `http:` or `https:`. Unlike approval, this needs no session. [`examples/mcp/src/account-server.ts`](https://github.com/tollstile/Tollstile/tree/main/examples/mcp/src/account-server.ts) is the shape it is for.
 
 ### Context passed to the gate
 
