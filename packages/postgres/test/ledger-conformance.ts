@@ -613,11 +613,17 @@ export function describeLedgerConformance(name: string, createLedger: LedgerFact
         const cutoff = clock.now();
         await created({ id: 'at_cutoff', requestId: 'at_cutoff', at: cutoff });
 
-        const pending = await ledger.pendingCharges(cutoff);
+        const pending = await ledger.pendingCharges(cutoff, 100);
         expect(pending.map((charge) => charge.id).sort()).toEqual(['refund_pending', 'running', 'settled_running', 'unknown']);
         expect(pending.find((charge) => charge.id === 'unknown')).toEqual(await ledger.getCharge('unknown'));
-        expect((await ledger.pendingCharges(new Date(cutoff.getTime() + 1))).map((charge) => charge.id)).toContain('at_cutoff');
-        expect(await ledger.pendingCharges(new Date(0))).toEqual([]);
+        expect((await ledger.pendingCharges(new Date(cutoff.getTime() + 1), 100)).map((charge) => charge.id)).toContain('at_cutoff');
+        expect(await ledger.pendingCharges(new Date(0), 100)).toEqual([]);
+
+        // Most recently updated first, and never more than asked for: the page a bounded
+        // reconciliation works through starts with the charges still moving.
+        const byRecency = [...pending].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.id < b.id ? 1 : -1));
+        expect(pending.map((charge) => charge.id)).toEqual(byRecency.map((charge) => charge.id));
+        expect((await ledger.pendingCharges(cutoff, 2)).map((charge) => charge.id)).toEqual(byRecency.slice(0, 2).map((charge) => charge.id));
       });
     });
 

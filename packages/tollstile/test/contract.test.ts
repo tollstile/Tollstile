@@ -24,15 +24,16 @@ describe('completion', () => {
     expect(charges()).toEqual(['failed/completed']);
   });
 
-  it('answers a plain 402 after a rejection when the handler already read the body', async () => {
+  it('answers a fresh 402 with a quote after a rejection, even though the handler read the body', async () => {
     const { toll, rail } = setup();
     rail.simulate({ settle: 'reject' });
     const gate = toll.price(() => '$0.01');
     const quoted = await call(gate, { body: '{"a":1}' });
     const result = await call(gate, { body: '{"a":1}', payment: `test quote=${String(quoted.body.quote)}`, readBody: () => undefined });
 
+    // Core priced its own bounded copy of the body, so the handler consuming the original costs nothing here.
     expect(result).toMatchObject({ status: 402, body: { error: { code: 'settlement_rejected' } } });
-    expect(result.body.quote).toBeUndefined();
+    expect(result.body.quote).toBeDefined();
   });
 
   it('serves the output when the settlement outcome is unknown', async () => {
@@ -122,6 +123,68 @@ describe('work an unauthenticated caller can ask for', () => {
     expect(entry.kind === 'denied' && entry.denial.error.detail).toBe('request_too_large');
     expect(priced).toBe(0);
     expect(rail.effects).toMatchObject({ settlements: 0 });
+  });
+
+  it('bounds a body with no declared length while reading it, before the price function sees it', async () => {
+    const { toll } = setup({ config: { maxRequestBytes: 64 } });
+    let priced = 0;
+    const gate = toll.price(() => {
+      priced += 1;
+      return '$0.01';
+    });
+    const chunked = (text: string) =>
+      new Request('http://localhost/weather', {
+        method: 'POST',
+        body: new ReadableStream({
+          start(controller) {
+            for (const piece of text.match(/.{1,16}/g) ?? []) controller.enqueue(new TextEncoder().encode(piece));
+            controller.close();
+          },
+        }),
+        // @ts-expect-error -- Node's fetch needs this for a streaming body; the DOM types do not know it.
+        duplex: 'half',
+      });
+
+    const big = await gate.enter(httpContext(chunked('x'.repeat(100))));
+    expect(big.kind === 'denied' && big.denial.error.detail).toBe('request_too_large');
+    expect(priced).toBe(0);
+
+    const small = await gate.enter(httpContext(chunked('y'.repeat(40))));
+    expect(small.kind === 'denied' && small.denial.error.code).toBe('payment_required');
+    expect(priced).toBe(1);
+  });
+
+  it('lets the price function read a chunked body in full, and a quote for it pays for a retry with the same body', async () => {
+    const { toll } = setup({ config: { maxRequestBytes: 1024 } });
+    const seen: string[] = [];
+    const gate = toll.price(async (context) => {
+      seen.push((await context.request?.text()) ?? '');
+      return '$0.02';
+    });
+    const chunked = (text: string, headers: Record<string, string> = {}) =>
+      new Request('http://localhost/weather', {
+        method: 'POST',
+        headers,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(text.slice(0, 5)));
+            controller.enqueue(new TextEncoder().encode(text.slice(5)));
+            controller.close();
+          },
+        }),
+        // @ts-expect-error -- Node's fetch needs this for a streaming body; the DOM types do not know it.
+        duplex: 'half',
+      });
+
+    const challenge = await gate.enter(httpContext(chunked('hello world')));
+    expect(seen).toEqual(['hello world']);
+    const issued = challenge.kind === 'denied' ? challenge.denial.body.quote : undefined;
+    const quote = typeof issued === 'string' ? issued : '';
+
+    const paid = await gate.enter(httpContext(chunked('hello world', { payment: `test quote=${quote}` })));
+    expect(paid.kind).toBe('admitted');
+    const swapped = await gate.enter(httpContext(chunked('hello there', { payment: `test quote=${quote}` })));
+    expect(swapped.kind === 'denied' && swapped.denial.error.code).toBe('quote_mismatch');
   });
 
   it('prices a body within the limit', async () => {
@@ -333,7 +396,7 @@ describe('concurrent reconciliation', () => {
     const racing: typeof ledger = {
       ...ledger,
       pendingCharges: async (before) => {
-        const pending = await ledger.pendingCharges(before);
+        const pending = await ledger.pendingCharges(before, 100);
         if (first !== undefined) {
           await ledger.transitionCharge(first.id, { payment: 'unknown', fulfillment: 'completed' }, { payment: 'settled', fulfillment: 'completed' }, clock.now(), { pending: null, settlement: { reference: 'other-worker', details: null } });
         }

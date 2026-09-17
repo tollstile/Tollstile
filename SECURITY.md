@@ -26,7 +26,7 @@ Answering `402` is work a caller asks for without paying: the body may be read t
 
 Rate limiting belongs in front of the service: a CDN, a gateway, or your framework. Two things are worth knowing when you set it:
 
-- A body with no declared length is bounded by your runtime, not by `maxRequestBytes`.
+- A body with no declared length is refused the moment it passes `maxRequestBytes`, on any route that reads the body; the cap is enforced while reading, not only from `Content-Length`.
 - Rails that call a provider during `challenge()` turn unauthenticated requests into outbound calls on your account. Check what each rail you enable does there.
 
 `limit()` is not this: it caps what a **payer** spends, and a payer is only known after a proof is verified.

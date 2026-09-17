@@ -188,7 +188,7 @@ describe('sqliteLedger', () => {
         return driver.execute(sql, params);
       },
     });
-    await ledger.pendingCharges(new Date());
+    await ledger.pendingCharges(new Date(), 100);
     await ledger.spendSince('payer_1', new Date(0));
 
     const plan = (index: number) => {

@@ -74,6 +74,28 @@ describe('@tollstile/proxy for MCP tools', () => {
     expect(rail.effects.settlements).toBe(1);
   });
 
+  it('refuses a body with no declared length once it passes the limit, without forwarding it', async () => {
+    const { proxy, bodies } = setup();
+    const body = new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < 8; i += 1) controller.enqueue(new TextEncoder().encode('x'.repeat(1024)));
+        controller.close();
+      },
+    });
+    const response = await proxy(
+      new Request('https://api.example.com/mcp', {
+        method: 'POST',
+        body,
+        headers: { 'content-type': 'application/json' },
+        // @ts-expect-error -- Node's fetch needs this for a streaming body; the DOM types do not know it.
+        duplex: 'half',
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(bodies).toHaveLength(0);
+  });
+
   it('withholds a paid call whose answer the upstream promised somewhere else, and charges nothing', async () => {
     // Streamable HTTP lets a server answer a POST with 202 and deliver the result on the GET stream.
     const { post, rail, charges } = setup(() => new Response(null, { status: 202 }));
