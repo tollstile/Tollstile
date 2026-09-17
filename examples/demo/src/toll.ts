@@ -40,10 +40,13 @@ export function createToll(env: Env): Tollstile<readonly Rail[]> {
 
 /** Keeps what a paid call produced. `already_paid` hands a retry this reference; `GET /v1/results/:id` serves it. */
 export async function keepResult(env: Env, chargeId: string, content: string): Promise<string> {
-  await env.DB.prepare('INSERT OR REPLACE INTO demo_results (id, content, created_at) VALUES (?, ?, ?)')
-    .bind(chargeId, content, Date.now())
+  // The public ledger table prints charge ids, so a result keyed by one would be anyone's to read.
+  // The key is a secret the payer alone receives, in `already_paid`; the charge id is kept beside it.
+  const key = Array.from(crypto.getRandomValues(new Uint8Array(18)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  await env.DB.prepare('INSERT OR REPLACE INTO demo_results (id, charge_id, content, created_at) VALUES (?, ?, ?, ?)')
+    .bind(key, chargeId, content, Date.now())
     .all();
-  return `results/${chargeId}`;
+  return `results/${key}`;
 }
 
 export async function readResult(env: Env, id: string): Promise<string | undefined> {

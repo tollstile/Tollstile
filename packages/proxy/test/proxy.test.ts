@@ -62,21 +62,33 @@ describe('@tollstile/proxy over HTTP', () => {
     expect(forwarded?.headers.get('x-forwarded-host')).toBe('api.example.com');
   });
 
-  it('forwards unpriced routes for free, or refuses them when unmatched is deny', async () => {
-    const free = setup();
-    expect((await free.proxy(at('/health'))).status).toBe(200);
-    expect(free.service.seen).toHaveLength(1);
+  it('refuses a path with an encoded separator or a parameter instead of forwarding it unpriced', async () => {
+    const { proxy, service } = setup({ unmatched: 'pass' });
 
-    const strict = setup({ unmatched: 'deny' });
+    for (const path of ['/weathe%2F', '/weather%2Fx', '/weather%5C', '/weather;x=1']) {
+      const response = await proxy(at(path));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: 'invalid_path' } });
+    }
+    expect(service.seen).toHaveLength(0);
+  });
+
+  it('refuses unpriced routes by default, and forwards them free only when told to', async () => {
+    const strict = setup();
     expect((await strict.proxy(at('/health'))).status).toBe(404);
     expect(strict.service.seen).toHaveLength(0);
+
+    const free = setup({ unmatched: 'pass' });
+    expect((await free.proxy(at('/health'))).status).toBe(200);
+    expect(free.service.seen).toHaveLength(1);
   });
 
   it('matches path parameters and trailing wildcards', async () => {
     const { proxy } = setup();
     expect((await proxy(at('/reports/42/pdf/full'))).status).toBe(402);
     expect((await proxy(at('/reports/42'))).status).toBe(402);
-    expect((await proxy(at('/reports'))).status).toBe(200);
+    // `/reports/:id` does not cover `/reports`, and an unpriced path is refused by default.
+    expect((await proxy(at('/reports'))).status).toBe(404);
   });
 
   it('prices path aliases the upstream would treat as the same route, and forwards the canonical path', async () => {

@@ -12,6 +12,7 @@ function d1(): D1Database {
   db.exec(sqliteSchema);
   db.exec(readFileSync(new URL('../migrations/0002_results.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0003_clients.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0004_results_by_key.sql', import.meta.url), 'utf8'));
   const statement = (sql: string, params: readonly (string | number | null)[] = []): D1PreparedStatement => ({
     bind: (...values) => statement(sql, values),
     all: () => Promise.resolve({ results: db.prepare(sql).all(...params) as never, success: true }),
@@ -206,7 +207,11 @@ describe('the demo worker', () => {
     const retry = await call('/v1/summarize', { method: 'POST', body, headers });
     const denial = (await retry.json()) as { error: { code: string }; result: string };
     expect(denial.error.code).toBe('already_paid');
-    expect(denial.result).toMatch(/^results\/chg_/);
+    expect(denial.result).toMatch(/^results\/[0-9a-f]{36}$/);
+
+    // The ledger table prints charge ids; none of them opens a result.
+    const { charges } = (await (await call('/api/charges')).json()) as { charges: { id: string }[] };
+    for (const { id } of charges) expect((await call(`/v1/results/${id}`)).status).toBe(404);
 
     const recovered = await call(`/v1/${denial.result}`);
     expect(await recovered.json()).toEqual(await paid.json());
@@ -250,6 +255,13 @@ describe('the demo worker', () => {
     const data = (await response.text()).split(/\r?\n/).find((line) => line.startsWith('data:')) ?? '';
 
     expect((JSON.parse(data.slice(5)) as { result: ToolResult }).result._meta?.['tollstile/test-receipt']).toMatch(/^test_settlement_/);
+  });
+
+  it('answers a body that is not JSON with a client error rather than an exception', async () => {
+    const response = await call('/mcp', { method: 'POST', headers: MCP_HEADERS, body: 'not json' });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBeLessThan(500);
   });
 
   it('turns away a request for a session it no longer holds', async () => {

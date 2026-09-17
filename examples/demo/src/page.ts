@@ -205,7 +205,10 @@ if (quote) {
   const path = tool ? '' : call.replace(/^[A-Z]+ /, '');
 
   const pending = document.getElementById('pending');
-  pending.innerHTML = 'Waiting on: <strong>' + call + '</strong>' + (price ? ' · ' + price : '');
+  pending.textContent = 'Waiting on: ';
+  const strong = document.createElement('strong');
+  strong.textContent = call;
+  pending.append(strong, price ? ' · ' + price : '');
   pending.hidden = false;
 
   // Out of the address bar and out of history: a quote in a URL is a quote in every back button,
@@ -281,6 +284,10 @@ setInterval(refresh, 2000);
 
 export function page(host?: string): Response {
   return new Response(HTML.replaceAll('DEMO_HOST', host ?? 'demo.tollstile.com'), {
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60' },
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'public, max-age=60',
+      'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+    },
   });
 }

@@ -102,14 +102,17 @@ export function paidTool<
     const toolArguments = parseJsonValue(args);
     if (toolArguments === undefined) return invalidRequest('arguments_not_json');
 
+    // Under Streamable HTTP the call rode on a POST that may carry an Idempotency-Key header; `_meta`
+    // takes precedence, the header is the fallback the docs promise.
+    const request = httpRequest(extra.requestInfo);
     const entry = await gate.enter({
       transport: 'mcp',
-      request: httpRequest(extra.requestInfo),
+      request,
       mcp: { tool: name, arguments: toolArguments, meta, clientCapabilities },
       principal: options.principal === undefined ? null : await options.principal(extra),
       resource: gate.resource ?? `tool:${name}`,
       requestId: crypto.randomUUID(),
-      idempotencyKey: idempotencyKeyOf(null, meta),
+      idempotencyKey: idempotencyKeyOf(request, meta),
       extras: extra,
     });
 
@@ -149,7 +152,7 @@ export function paidTool<
 
     if (approval !== undefined) {
       const decision = await releaseOnThrow(() =>
-        approve({ extra, payment: pass.payment, tool: name, above, canAsk: capabilities?.elicitation !== undefined, approval }),
+        approve({ extra, payment: pass.payment, tool: name, above, canAsk: capabilities?.elicitation?.form !== undefined, approval }),
       );
       if (decision !== 'approved') {
         await pass.complete('failed');

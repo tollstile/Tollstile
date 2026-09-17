@@ -57,13 +57,17 @@ export function matchHttpRoute(routes: readonly CompiledHttpRoute[], method: str
  * The path the proxy prices and forwards, so an alias can never reach the upstream unpriced:
  * percent-encoding is decoded (an encoded `/` stays encoded), repeated slashes collapse, and dot
  * segments were already resolved by the URL parser. `match` also ignores a trailing slash.
- * Returns `undefined` for malformed percent-encoding.
+ * Returns `undefined` for malformed percent-encoding, and for a segment that decodes to a separator
+ * (`%2F`, `%5C`) or carries a `;` parameter: upstreams disagree about those, so nothing is forwarded.
  */
 export function canonicalPath(pathname: string): { readonly forward: string; readonly match: string } | undefined {
   const segments: string[] = [];
   for (const segment of pathname.split('/')) {
     const decoded = decodeSegment(segment);
     if (decoded === undefined) return undefined;
+    // An encoded separator, or a `;` parameter, is a path some upstreams re-split and this matcher
+    // does not. Whatever a route would say about it here could differ from what is served there.
+    if (/[/\\;]/.test(decoded)) return undefined;
     segments.push(encodeURIComponent(decoded).replace(/%(?:40|3A|24|2C|3B|3D|2B|21|2A|27|28|29)/gi, (encoded) => decodeURIComponent(encoded)));
   }
   const forward = segments.join('/').replace(/\/{2,}/g, '/') || '/';

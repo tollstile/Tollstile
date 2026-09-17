@@ -69,7 +69,11 @@ export default {
 
   /** Resolves anything a crashed isolate left behind, then clears what finished more than a day ago. */
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil(createToll(env).reconcile({ olderThanMs: 60_000 }).then(() => pruneLedger(env, event.scheduledTime)));
+    // The routes register their credit balances on the instance; a charge paid from one can only be
+    // reconciled by an instance that knows it, so the routes are defined before reconciling.
+    const toll = createToll(env);
+    offers(env, toll);
+    ctx.waitUntil(toll.reconcile({ olderThanMs: 60_000 }).then(() => pruneLedger(env, event.scheduledTime)));
   },
 };
 

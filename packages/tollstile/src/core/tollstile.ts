@@ -47,6 +47,12 @@ export function createTollstile<const Rails extends readonly Rail[]>(config: Tol
       const name = options.resource ?? (typeof price === 'function' ? 'dynamic price' : describe(price));
 
       const commit = options.commit ?? (typeof price === 'function' ? 'request' : 'route');
+      if (typeof price === 'function' && commit === 'route') {
+        throw new TollstileError(
+          'CONFIG_INVALID',
+          `Route "${name}" computes its price per request but would bind quotes only to the route, so a quote for a small request could pay for a large one. Use commit: "request" (the default) or a commit function that covers the pricing inputs.`,
+        );
+      }
       const plan = compilePlan(config.rails, {
         name,
         flow: options.flow,

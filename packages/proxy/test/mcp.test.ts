@@ -54,6 +54,47 @@ describe('@tollstile/proxy for MCP tools', () => {
     expect(rail.effects.settlements).toBe(1);
   });
 
+  it('honours an Idempotency-Key header on the POST that carried the tool call', async () => {
+    const { proxy, rail, bodies } = setup();
+    const post = () =>
+      proxy(
+        new Request('https://api.example.com/mcp', {
+          method: 'POST',
+          body: toolCall('generate_image', { 'tollstile/test-payment': 'test proof=once' }),
+          headers: { 'content-type': 'application/json', 'idempotency-key': 'job-9' },
+        }),
+      );
+
+    expect(((await (await post()).json()) as RpcResult).result.content[0]?.text).toBe('done');
+
+    // The client lost the answer and repeats the POST exactly: same payment, same key.
+    const retry = (await (await post()).json()) as RpcResult;
+    expect(retry.result._meta?.['tollstile/payment-required']).toMatchObject({ error: { code: 'already_paid' } });
+    expect(bodies).toHaveLength(1);
+    expect(rail.effects.settlements).toBe(1);
+  });
+
+  it('withholds a paid call whose answer the upstream promised somewhere else, and charges nothing', async () => {
+    // Streamable HTTP lets a server answer a POST with 202 and deliver the result on the GET stream.
+    const { post, rail, charges } = setup(() => new Response(null, { status: 202 }));
+
+    const response = await post(toolCall('generate_image', { 'tollstile/test-payment': 'test' }));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: 'mcp_response_unreadable' } });
+    expect(rail.effects.settlements).toBe(0);
+    expect(charges()).toEqual(['released/failed']);
+  });
+
+  it('declines the standalone stream, where a priced answer could bypass the gate', async () => {
+    const { proxy, bodies } = setup();
+
+    const response = await proxy(new Request('https://api.example.com/mcp', { method: 'GET', headers: { accept: 'text/event-stream' } }));
+
+    expect(response.status).toBe(405);
+    expect(bodies).toHaveLength(0);
+  });
+
   it('reads and rewrites a streamed (SSE) tool response', async () => {
     const { post } = setup((body) => {
       const { id } = JSON.parse(body) as { id: number };

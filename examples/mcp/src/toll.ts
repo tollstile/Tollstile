@@ -12,7 +12,7 @@ export const toll = createTollstile({
 // To accept USDC on Base Sepolia through x402, replace `toll` above with the block below.
 // Tools and handlers do not change. Set PAY_TO (your receiving address) and TOLLSTILE_SECRET
 // (32+ random characters); a missing value fails at startup with a message saying which.
-// See "Use real payments" in README.md: this path has not been verified against a live facilitator.
+// See "Use real payments" in README.md: this example's x402 block has not itself been run live; the rail's `exact` scheme has, on Base Sepolia.
 //
 // import { x402 } from '@tollstile/x402';
 //

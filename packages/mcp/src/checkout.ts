@@ -68,6 +68,7 @@ export async function showCheckout(
   await extra.sendRequest(
     { method: 'elicitation/create', params: { mode: 'form', message: `${message}\n\n${checkout.url}`, requestedSchema: { type: 'object' as const, properties: {} } } },
     ElicitResultSchema,
+    { signal: extra.signal },
   );
 }
 
