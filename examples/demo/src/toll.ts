@@ -5,6 +5,10 @@ export type Env = {
   readonly DB: D1Database;
   /** One Durable Object per MCP session: approval needs the client's answer to reach the server that asked. */
   readonly MCP_SESSIONS: DurableObjectNamespace;
+  /** Paid calls and MCP, per IP. The test rail makes paying free, so without this one script could fill the ledger. */
+  readonly CALLS: RateLimit;
+  /** The page's own polling and the published catalogue, per IP. Counted apart so a tab left open does not spend the calls. */
+  readonly READS: RateLimit;
   /** Signs quotes. Set with `wrangler secret put TOLLSTILE_SECRET`; quotes must verify across isolates. */
   readonly TOLLSTILE_SECRET: string;
 };

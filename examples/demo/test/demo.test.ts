@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { sqliteSchema } from '@tollstile/sqlite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker, { McpSession } from '../src/index';
+import { pruneLedger, RETENTION_MS } from '../src/limits';
 import type { Env } from '../src/toll';
 
 /** D1's shape over node:sqlite, so the worker can be tested exactly as deployed. */
@@ -37,6 +38,9 @@ function sessions(): DurableObjectNamespace {
     },
   };
 }
+
+/** A rate limiter that lets everything through unless told otherwise. */
+const allow: RateLimit = { limit: () => Promise.resolve({ success: true }) };
 
 let env: Env;
 const call = (path: string, init?: RequestInit) => worker.fetch(new Request(`https://demo.tollstile.com${path}`, init), env);
@@ -79,7 +83,50 @@ async function tool(request: { session: string; name: string; arguments?: Record
 }
 
 beforeEach(() => {
-  env = { DB: d1(), TOLLSTILE_SECRET: 'demo-secret-0123456789abcdefghijk', MCP_SESSIONS: sessions() };
+  env = { DB: d1(), TOLLSTILE_SECRET: 'demo-secret-0123456789abcdefghijk', MCP_SESSIONS: sessions(), CALLS: allow, READS: allow };
+});
+
+describe('the demo, as a public target', () => {
+  it('refuses a caller over the limit before anything is priced or written', async () => {
+    env = { ...env, CALLS: { limit: () => Promise.resolve({ success: false }) } };
+
+    const response = await call('/v1/forecast?city=Osaka', { headers: { payment: 'test' } });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('60');
+    expect(await response.json()).toMatchObject({ error: { code: 'rate_limited', action: 'retry_later' }, retryAfter: 60 });
+    expect(await (await call('/api/charges')).json()).toEqual({ charges: [] });
+  });
+
+  it('counts the page polling the ledger apart from paid calls', async () => {
+    const counted: string[] = [];
+    const counting = (name: string): RateLimit => ({ limit: () => { counted.push(name); return Promise.resolve({ success: true }); } });
+    env = { ...env, CALLS: counting('calls'), READS: counting('reads') };
+
+    await call('/api/charges');
+    await call('/.well-known/tollstile');
+    await call('/v1/forecast?city=Osaka');
+    await call('/');
+
+    expect(counted).toEqual(['reads', 'reads', 'calls']);
+  });
+
+  it('prunes finished charges older than a day, and keeps what is in flight and who connected', async () => {
+    for (const city of ['Osaka', 'Kyoto']) {
+      const quote = await quoteOf(await call(`/v1/forecast?city=${city}`));
+      await call(`/v1/forecast?city=${city}`, { headers: { payment: `test quote=${quote}` } });
+    }
+    await open();
+    // One of them never learned its outcome, and reconciliation still needs it.
+    await env.DB.prepare(`UPDATE tollstile_charges SET payment = 'unknown' WHERE id = (SELECT id FROM tollstile_charges LIMIT 1)`).all();
+
+    await pruneLedger(env, Date.now() + RETENTION_MS + 60_000);
+
+    const { charges } = (await (await call('/api/charges')).json()) as { charges: { payment: string }[] };
+    expect(charges.map((charge) => charge.payment)).toEqual(['unknown']);
+    const { clients } = (await (await call('/api/clients')).json()) as { clients: unknown[] };
+    expect(clients).toHaveLength(1);
+  });
 });
 
 describe('the demo worker', () => {
