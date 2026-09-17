@@ -15,7 +15,7 @@ export function createToll() {
 // .dev.vars for `wrangler dev`): PAY_TO, your receiving address, and TOLLSTILE_SECRET, 32+ random
 // characters. A secret is required anyway once deployed: without one, each isolate signs quotes with
 // its own random key and rejects quotes issued by another.
-// See "Use real payments" in README.md: this path has not been verified against a live facilitator.
+// See "Use real payments" in README.md: this example's x402 block has not itself been run live; the rail's `exact` scheme has, on Base Sepolia.
 //
 // import { x402 } from '@tollstile/x402';
 //

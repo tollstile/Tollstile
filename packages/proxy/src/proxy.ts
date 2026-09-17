@@ -22,6 +22,7 @@ export type ProxyOptions<Rails extends readonly Rail[]> = {
   /** The upstream's MCP endpoint. Required when any route prices a tool. */
   readonly mcp?: { readonly path: string };
   /** What happens to requests no route prices. Defaults to `pass`: forwarded for free. */
+  /** What happens to a request no route prices: refused with 404 (`deny`, the default) or forwarded free (`pass`). */
   readonly unmatched?: 'pass' | 'deny';
   /** Resolves the caller for access policies such as `subscriber()` and `credits()`. */
   readonly principal?: (request: Request) => Principal | null | Promise<Principal | null>;
@@ -64,12 +65,17 @@ export function createProxy<Rails extends readonly Rail[]>(options: ProxyOptions
 
   return async (incoming) => {
     const path = canonicalPath(new URL(incoming.url).pathname);
-    if (path === undefined) return proxyError(400, 'invalid_path', 'The request path has malformed percent-encoding.');
+    if (path === undefined) return proxyError(400, 'invalid_path', 'The request path has malformed percent-encoding, an encoded separator, or a `;` parameter.');
     // From here on the request carries its canonical path: what is priced is exactly what is forwarded.
     const request = withPath(incoming, path.forward);
     const url = new URL(request.url);
     const principal = options.principal === undefined ? null : await options.principal(request);
 
+    if (mcpPath !== undefined && path.match === mcpPath && request.method === 'GET' && toolRoutes.size > 0) {
+      // A server may answer a priced tool call with 202 and deliver the result on this stream, which
+      // no gate sees. MCP lets a server decline the stream; clients then read answers off the POST.
+      return proxyError(405, 'mcp_stream_unsupported', 'This gateway serves tool results on the POST that called them, not on a standalone stream.');
+    }
     if (mcpPath !== undefined && path.match === mcpPath && request.method === 'POST' && toolRoutes.size > 0) {
       const length = Number(request.headers.get('content-length') ?? '0');
       if (length > maxMcpBodyBytes) return proxyError(413, 'mcp_body_too_large', `MCP request bodies over ${String(maxMcpBodyBytes)} bytes are refused.`);
@@ -91,7 +97,7 @@ export function createProxy<Rails extends readonly Rail[]>(options: ProxyOptions
     const matched = matchHttpRoute(httpRoutes, request.method, path.match);
     const gate = matched === undefined ? undefined : httpGates.get(matched);
     if (gate === undefined) {
-      if (options.unmatched === 'deny') return proxyError(404, 'route_not_priced', 'This path is not served through the payment gateway.');
+      if ((options.unmatched ?? 'deny') === 'deny') return proxyError(404, 'route_not_priced', 'This path is not served through the payment gateway.');
       return (await forward(request)).response;
     }
 
@@ -130,7 +136,7 @@ export function createProxy<Rails extends readonly Rail[]>(options: ProxyOptions
       principal,
       resource: gate.resource ?? `tool:${call.name}`,
       requestId: crypto.randomUUID(),
-      idempotencyKey: idempotencyKeyOf(null, call.meta),
+      idempotencyKey: idempotencyKeyOf(request, call.meta),
       extras: request,
     });
     if (entry.kind === 'denied') return denialResponse(call.id, entry.denial);
@@ -143,12 +149,19 @@ export function createProxy<Rails extends readonly Rail[]>(options: ProxyOptions
     const contentType = response.headers.get('content-type') ?? '';
     const bodyText = await response.text();
     const tool = response.status < 400 ? readToolResponse(bodyText, contentType, call.id) : undefined;
+    if (response.status < 400 && tool === undefined) {
+      // 202 (result promised elsewhere), or a body with no answer to this id: the client must not get
+      // the upstream's output for a call whose payment was just released.
+      await entry.pass.complete('failed');
+      return proxyError(502, 'mcp_response_unreadable', 'The upstream answered the tool call somewhere this gateway could not read. Nothing was charged.');
+    }
     const fulfilled = await fulfill(entry, response);
     const completion = await entry.pass.complete(tool?.succeeded === true && fulfilled ? 'succeeded' : 'failed');
 
     const headers = responseHeaders(response);
     headers.delete('content-length');
     if (tool === undefined) return new Response(bodyText, { status: response.status, statusText: response.statusText, headers });
+    // (an upstream error status: released above as failed, and passed through as the error it is)
     const rewritten = completion.denial !== null ? tool.withDenial(completion.denial) : tool.withReceipt(completion.receipt);
     return new Response(rewritten, { status: response.status, statusText: response.statusText, headers });
   }

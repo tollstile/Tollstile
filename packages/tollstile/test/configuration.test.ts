@@ -161,3 +161,13 @@ describe('mcp context', () => {
     expect(entry.denial.offers[0]?.challenge.mcp).toMatchObject({ style: 'tollstile', meta: 'tollstile/test-payment' });
   });
 });
+
+describe('quote binding', () => {
+  it('refuses a computed price that binds quotes only to the route', () => {
+    const toll = createTollstile({ rails: [testRail()], ledger: memoryLedger() });
+
+    expect(() => toll.price(() => '$0.42', { commit: 'route' })).toThrow(/small request could pay for a large one/);
+    expect(() => toll.price(() => '$0.42')).not.toThrow();
+    expect(() => toll.price('$0.42', { commit: 'route' })).not.toThrow();
+  });
+});

@@ -47,7 +47,7 @@ Route options are the same as `toll.price()`: `access`, `require`, `flow`, `comm
 | `upstream` | required | Base URL of the service behind the proxy |
 | `routes` | required | HTTP routes (`method?`, `path`) and MCP tools (`tool`), each with a price |
 | `mcp.path` | — | The upstream MCP endpoint. Required when a route prices a tool |
-| `unmatched` | `"pass"` | Requests no route prices are forwarded free (`pass`) or refused with 404 (`deny`) |
+| `unmatched` | `"deny"` | Requests no route prices are refused with 404 (`deny`) or forwarded free (`pass`). A gateway that forwards what it did not price, by default, fails open |
 | `principal` | none | Resolves the caller from the request, for `subscriber()` and `credits()` |
 | `maxMcpBodyBytes` | 10 MiB | Larger bodies to the MCP endpoint are refused (they could hide a tool call) |
 | `upstreamTimeoutMs` | 60 s | The upstream is given up on after this long; the charge is released and the client gets 502 |
@@ -84,6 +84,8 @@ Clients cannot set these: every incoming `tollstile-*` header is removed.
 - **The upstream must only be reachable through the proxy.** Bind it to `127.0.0.1` or a private network. Anyone who can reach it directly skips payment, and can forge the `Tollstile-*` headers.
 - Idempotency keys (`Idempotency-Key`, or `_meta["tollstile/idempotency-key"]`) work as in every adapter: a retried paid request is never paid or forwarded twice.
 - Streaming responses: on HTTP routes the body streams after settlement; MCP tool responses are buffered to add the receipt, so progress notifications arrive together with the result.
+- **What is priced is exactly what is forwarded.** A path is canonicalized before it is matched, and a path some upstreams would re-split — an encoded separator (`%2F`, `%5C`) or a `;` parameter — is refused with `400` rather than forwarded, because the gateway would price one path while the upstream served another. A request no route prices is refused with `404` unless `unmatched: "pass"` says otherwise.
+- **A priced tool's answer is served only on the POST that paid for it.** An upstream that answers `202` (result promised on the standalone stream) or a body the gateway cannot read gets `502` and nothing is charged; `GET` on the MCP path is declined with `405`, as the protocol allows, so no answer can travel past the gate.
 
 ## Embedding
 

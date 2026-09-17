@@ -68,7 +68,7 @@ Only `accept` charges. Declined, dismissed, unanswered, and "this client cannot 
 |---|---|
 | `above` | Charge without asking at or below this amount. Omit to ask before every charge. Parsed when the tool is registered. |
 | `message` | `(payment) => string`. Default: `Approve $0.05 for "summarize"?` |
-| `unsupported` | `'deny'` (default) refuses a call the client cannot ask about; `'charge'` charges it anyway. |
+| `unsupported` | `'deny'` (default) refuses a call the client cannot ask about — one that declared no `elicitation.form`; `'charge'` charges it anyway. |
 
 **A stateless HTTP server cannot ask.** The person's answer arrives on a later POST, which a server rebuilt per request is not waiting for; such a server declares no client capabilities, so it refuses the charge instead of hanging. Keep one server per session — a Durable Object per session on Workers, as [`examples/demo`](../../examples/demo) does.
 

@@ -1,4 +1,4 @@
-import { credits, payPerCall, upTo, type Gate, type Rail } from 'tollstile';
+import { credits, payPerCall, upTo, type Gate, type Rail, type Tollstile } from 'tollstile';
 import { pricePerWord } from './handlers';
 import { createToll, credits as balance, guests, type Env } from './toll';
 
@@ -24,8 +24,7 @@ export type Offers = {
   readonly toolWeek: Offer;
 };
 
-export function offers(env: Env): Offers {
-  const toll = createToll(env);
+export function offers(env: Env, toll: Tollstile<readonly Rail[]> = createToll(env)): Offers {
   return {
     forecast: {
       call: 'GET /v1/forecast?city=',

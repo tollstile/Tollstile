@@ -33,7 +33,7 @@ export type ApprovalRequest = {
   readonly tool: string;
   /** The amount `Approval.above` was parsed into at registration, or `null` when every charge is asked about. */
   readonly above: Money | null;
-  /** Whether the client declared `capabilities.elicitation`. */
+  /** Whether the client declared `capabilities.elicitation.form`: a client that can only open a URL cannot be asked a question. */
   readonly canAsk: boolean;
   readonly approval: Approval;
 };
@@ -47,6 +47,7 @@ export async function approve({ extra, payment, tool, above, canAsk, approval }:
   const { action } = await extra.sendRequest(
     { method: 'elicitation/create', params: { mode: 'form', message, requestedSchema: CONFIRMATION } },
     ElicitResultSchema,
+    { signal: extra.signal },
   );
   if (action === 'accept') return 'approved';
   return action === 'decline' ? 'declined' : 'cancelled';

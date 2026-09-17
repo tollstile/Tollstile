@@ -195,7 +195,8 @@ function tools(env: Env): McpServer {
 /** Only `initialize` may open a session; the body is read from a copy, so the transport still has it. */
 async function startsSession(request: Request): Promise<boolean> {
   if (request.method !== 'POST') return false;
-  const body: unknown = await request.clone().json();
+  const body = await request.clone().json().then((value: unknown) => value, () => undefined);
+  if (body === undefined) return false;
   return Array.isArray(body) ? body.some((message) => isInitializeRequest(message)) : isInitializeRequest(body);
 }
 

@@ -46,7 +46,7 @@ export async function pruneLedger(env: Env, now: number): Promise<void> {
   const finished = `SELECT id FROM tollstile_charges WHERE updated_at < ?1 AND ${FINISHED}`;
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM tollstile_charge_transitions WHERE charge_id IN (${finished})`).bind(before),
-    env.DB.prepare(`DELETE FROM demo_results WHERE id IN (${finished})`).bind(before),
+    env.DB.prepare(`DELETE FROM demo_results WHERE charge_id IN (${finished})`).bind(before),
     env.DB.prepare(`DELETE FROM tollstile_charges WHERE updated_at < ?1 AND ${FINISHED}`).bind(before),
     env.DB.prepare(`DELETE FROM tollstile_authorizations WHERE updated_at < ?1 AND id NOT IN (SELECT authorization_id FROM tollstile_charges)`).bind(before),
     env.DB.prepare(`DELETE FROM tollstile_claims WHERE expires_at < ?1`).bind(now),

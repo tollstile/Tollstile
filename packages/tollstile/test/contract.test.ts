@@ -132,6 +132,15 @@ describe('work an unauthenticated caller can ask for', () => {
     expect(result.status).toBe(402);
   });
 
+  it('refuses a quote token whose signature cannot be base64url, instead of throwing', async () => {
+    const { toll } = setup();
+
+    for (const token of ['A.A', 'AAAA.AAAAA', '.', 'AAAA.']) {
+      const result = await call(toll.price('$0.01'), { payment: `test quote=${token}` });
+      expect(result).toMatchObject({ status: 402, body: { error: { code: 'quote_invalid' } } });
+    }
+  });
+
   it('will not hash an oversized quote token', async () => {
     const { toll } = setup();
     const gate = toll.price('$0.01');

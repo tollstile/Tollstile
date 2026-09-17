@@ -309,14 +309,14 @@ A `402` additionally carries `price`, `variable`, `quote`, `nonce`, `expiresAt`,
 | `access_denied` | 403 | no | stop | no access policy admitted the caller |
 | `proof_already_used` | 409 | no | stop | a single proof whose charge was not released |
 | `request_in_progress` | 409 | yes | retry_later | same idempotency key, charge still running |
-| `already_paid` | 409 | no | stop | same idempotency key, charge settled; `chargeId`, `settlement` |
+| `already_paid` | 409 | no | stop | same idempotency key, charge settled; `chargeId`, `settlement`, `result` |
 | `idempotency_key_reused` | 422 | no | fix_request | same key, different request |
 | `invalid_request` | 400 | no | fix_request | the transport envelope is malformed |
 | `payment_unavailable` | 503 | yes | retry_later | a provider needed to verify or challenge is down |
 | `payment_outcome_unknown` | 503 | yes | retry_later | settlement outcome unknown; retry with the same proof and key |
 | `requirement_unavailable` | 503 | yes | retry_later | a requirement cannot check its evidence now |
 
-`409` and `503` responses SHOULD carry `Retry-After`, and the body of any `retry_later` denial SHOULD carry the same wait as `retryAfter` (seconds), for transports without headers. The value is spread around a mean rather than fixed, so that clients denied at the same instant do not return at the same one. Rails MUST NOT invent denial codes; they report `invalid` with a `reason`, which core places in `detail` under `proof_invalid` (or `quote_invalid` when the quote could not be opened).
+Denials whose `action` is `retry_later` (every `503`, `409 request_in_progress`, and retryable `429`) SHOULD carry `Retry-After`, and their body SHOULD carry the same wait as `retryAfter` (seconds), for transports without headers. `409` denials with `action: stop` carry neither. The value is spread around a mean rather than fixed, so that clients denied at the same instant do not return at the same one. Rails MUST NOT invent denial codes; they report `invalid` with a `reason`, which core places in `detail` under `proof_invalid` (or `quote_invalid` when the quote could not be opened).
 
 ---
 

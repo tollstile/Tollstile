@@ -547,6 +547,41 @@ describe('Streamable HTTP', () => {
     expect(unpaid.isError).toBe(true);
     expect(ledger.charges()).toHaveLength(0);
   });
+
+  it('honours an Idempotency-Key header on the POST that carried the call', async () => {
+    const test = testRail();
+    const ledger = memoryLedger();
+    const toll = createTollstile({ rails: [test], ledger });
+    const server = new McpServer({ name: 'weather', version: '1.0.0' });
+    let runs = 0;
+    paidTool(server, 'forecast', {}, toll.price('$0.01'), () => {
+      runs += 1;
+      return { content: [{ type: 'text', text: 'clear' }] };
+    });
+
+    const post = async (headers: Record<string, string>) => {
+      const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+      await server.connect(transport);
+      const response = await transport.handleRequest(
+        new Request('https://tools.example.com/mcp', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'forecast', _meta: { 'tollstile/test-payment': 'test proof=once' } } }),
+        }),
+      );
+      await server.close();
+      return ((await response.json()) as { result: CallToolResult }).result;
+    };
+
+    const first = await post({ 'idempotency-key': 'call-42' });
+    expect(textOf(first)).toBe('clear');
+
+    // The response was lost; the client repeats the POST as it is told to: same payment, same key.
+    const retry = await post({ 'idempotency-key': 'call-42' });
+    expect(denialOf(retry)).toMatchObject({ error: { code: 'already_paid' } });
+    expect(runs).toBe(1);
+    expect(test.effects.settlements).toBe(1);
+  });
 });
 
 describe('approval by the person at the client', () => {
@@ -645,6 +680,29 @@ describe('approval by the person at the client', () => {
     await call();
 
     expect(asked).toEqual(['Summarize this document for rail?']);
+  });
+
+  it('treats a client that can only open a URL as one that cannot be asked', async () => {
+    const test = testRail();
+    const clock = fakeClock();
+    const ledger = memoryLedger({ clock });
+    const toll = createTollstile({ rails: [test], ledger, clock, secret: 's'.repeat(32) });
+    const server = new McpServer({ name: 'documents', version: '1.0.0' });
+    // Declares url mode only: a form question would be refused by the client, not shown to anyone.
+    const client = new Client({ name: 'agent', version: '1.0.0' }, { capabilities: { elicitation: { url: {} } } });
+    let runs = 0;
+    paidTool(server, 'summarize', {}, toll.price('$0.05'), () => {
+      runs += 1;
+      return { content: [{ type: 'text', text: 'two sentences' }] };
+    }, { approval: {} });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const result = (await client.callTool({ name: 'summarize', _meta: { 'tollstile/test-payment': 'test proof=p1' } })) as CallToolResult;
+
+    expect(denialOf(result)).toMatchObject({ error: { code: 'access_denied', detail: 'approval_unavailable' } });
+    expect(runs).toBe(0);
+    expect(test.effects).toMatchObject({ settlements: 0, releases: 1 });
   });
 
   it('refuses the charge when the client cannot ask anyone', async () => {
