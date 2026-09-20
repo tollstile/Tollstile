@@ -1,0 +1,62 @@
+name: Feature proposal
+description: Propose a change larger than a bug fix. CONTRIBUTING.md asks for agreement here before the code.
+labels: [proposal]
+body:
+  - type: markdown
+    attributes:
+      value: "Security problems go to a private advisory, not here: https://github.com/tollstile/tollstile/security/advisories/new. To add a payment rail, use the rail proposal or rail listing template instead."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What cannot be done today, and who is affected. A concrete case a merchant or an agent runs into is worth more than a general principle.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The smallest change that solves it, and the public API it adds or changes if any.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives, and what this is not
+      description: What you considered and rejected, and what the proposal deliberately leaves out.
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Layer touched
+      options:
+        - core
+        - adapter
+        - rail
+        - ledger
+        - policy or requirement
+        - docs or examples
+        - build, CI, or release
+    validations:
+      required: true
+  - type: dropdown
+    id: money
+    attributes:
+      label: Could this change what is charged, settled, or refunded?
+      options:
+        - "No"
+        - "Yes, and the proposal above says how"
+        - "Not sure"
+    validations:
+      required: true
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Checks
+      options:
+        - label: No secret, payer evidence, or request body is exposed in events, logs, errors, or receipts
+        - label: Core stays protocol-neutral, or this is an optional hook rather than knowledge of one protocol
+  - type: textarea
+    id: help
+    attributes:
+      label: Would you like to implement it?
+      description: Either answer is welcome. Saying no does not make the proposal less useful.
