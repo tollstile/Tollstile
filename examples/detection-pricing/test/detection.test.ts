@@ -100,3 +100,65 @@ describe('the model verifier', () => {
     expect(verdicts.every((verdict) => verdict.verifiedBy === 'rules')).toBe(true);
   });
 });
+
+describe('SAM as the proposer', () => {
+  it('turns centre-based fractions into pixel boxes, and keeps its score for the record only', async () => {
+    const { segment } = await import('../src/sam');
+    const photo = '/Users/yoshida/.claude/uploads/b4507ce0-1457-4767-a9d5-0820d398a1a6/9f5ae28c-image.jpg';
+    let sent: Record<string, unknown> = {};
+
+    const result = await segment(photo, 'a car', {
+      apiKey: 'key-from-the-environment',
+      fetch: (_url, init) => {
+        sent = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<string, unknown>;
+        return Promise.resolve(Response.json({ boxes: [[0.5, 0.5, 0.25, 0.2]], scores: [0.96] }));
+      },
+    });
+
+    expect(sent['prompt']).toBe('a car');
+    expect(String(sent['image_url'])).toMatch(/^data:image\/jpeg;base64,/);
+    expect(result.detections).toHaveLength(1);
+    const box = result.detections[0]?.box;
+    expect(box?.width).toBe(Math.round(result.photo.width * 0.25));
+    expect(box?.x).toBe(Math.round(result.photo.width * 0.5 - (result.photo.width * 0.25) / 2));
+    expect(result.detections[0]?.confidence).toBe(0.96);
+  });
+});
+
+describe('the two-stage second opinion', () => {
+  it('asks what the crop shows, then whether that is the concept, and bills on the second answer', async () => {
+    const { secondOpinion } = await import('../src/second-opinion');
+    const { load } = await import('../src/photo');
+    const photo = load('/Users/yoshida/.claude/uploads/b4507ce0-1457-4767-a9d5-0820d398a1a6/9f5ae28c-image.jpg');
+    const seen: string[] = [];
+
+    const verdicts = await secondOpinion({
+      apiKey: 'key',
+      spacingMs: 0,
+      fetch: (url) => {
+        const address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+        seen.push(address);
+        return Promise.resolve(
+          address.endsWith('/v1/chat/completions')
+            ? Response.json({ choices: [{ message: { content: 'A dark gray SUV parked beside a silver car.' } }] })
+            : Response.json({ model: 'typesafe-ai/jev', answers: { matches: { noul: 0.97 } } }),
+        );
+      },
+    })(photo, 'a car', [{ box: { x: 430, y: 550, width: 230, height: 90 }, confidence: 0.96, pixels: 20_700 }]);
+
+    expect(seen).toEqual(['https://ai-gateway.vercel.sh/v1/chat/completions', 'https://ai-gateway.vercel.sh/typesafe/v1/systemone']);
+    expect(verdicts[0]).toMatchObject({ probability: 0.97, verifiedBy: 'typesafe-ai/jev', description: 'A dark gray SUV parked beside a silver car.' });
+  });
+
+  it('scores a crop it could not describe as zero', async () => {
+    const { secondOpinion } = await import('../src/second-opinion');
+    const { load } = await import('../src/photo');
+    const photo = load('/Users/yoshida/.claude/uploads/b4507ce0-1457-4767-a9d5-0820d398a1a6/9f5ae28c-image.jpg');
+
+    const verdicts = await secondOpinion({ apiKey: 'key', spacingMs: 0, fetch: () => Promise.resolve(new Response('no', { status: 500 })) })(photo, 'a car', [
+      { box: { x: 430, y: 550, width: 230, height: 90 }, confidence: 0.96, pixels: 20_700 },
+    ]);
+
+    expect(verdicts[0]).toMatchObject({ probability: 0, verifiedBy: 'unavailable' });
+  });
+});

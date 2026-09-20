@@ -1,41 +1,54 @@
 import { formatMoney, money, parseMoney } from 'tollstile';
 import { CAP } from './app';
 import { propose } from './propose';
-import { KEEP, photoVerifier } from './verify';
+import { segment } from './sam';
+import { secondOpinion } from './second-opinion';
+import { KEEP } from './verify';
 
 /**
- * The whole thing over a real photograph, without a server in the way:
+ * The whole thing over a real photograph:
  *
- *   pnpm --filter @tollstile-examples/detection-pricing photo -- ~/Pictures/street.jpg 'a car'
+ *   FAL_KEY=… AI_GATEWAY_API_KEY=… pnpm --filter @tollstile-examples/detection-pricing photo -- photo.jpg car
  *
- * One model proposes regions, another looks at each crop, and the charge is what survived — under
- * the same ceiling the HTTP route uses. Prints what each model said, so the two can be compared.
+ * SAM 3 proposes every instance of the concept, with its own score. A vision model says what each
+ * crop shows. A System One model says whether that is the thing asked for, with a probability. The
+ * charge is the survivors, under a ceiling the caller approved before any of it ran.
  */
-const path = process.argv[2];
-const target = process.argv[3] ?? 'a car';
-const key = process.env['AI_GATEWAY_API_KEY'] ?? process.env['LLAMA_API_KEY'];
+// pnpm forwards its own `--`; drop it so the first real argument is the image.
+const args = process.argv.slice(2).filter((argument) => argument !== '--');
+const path = args[0];
+const concept = args[1] ?? 'car';
+const gatewayKey = process.env['AI_GATEWAY_API_KEY'];
+const falKey = process.env['FAL_KEY'];
 
-if (path === undefined) {
-  console.log('usage: photo <image> [target]');
+if (path === undefined || gatewayKey === undefined) {
+  console.log('usage: AI_GATEWAY_API_KEY=… [FAL_KEY=…] photo <image> [concept]');
   process.exit(1);
 }
 
-const detector = { apiKey: key, ...(process.env['DETECTOR_MODEL'] === undefined ? {} : { model: process.env['DETECTOR_MODEL'] }), ...(process.env['DETECTOR_URL'] === undefined ? {} : { endpoint: process.env['DETECTOR_URL'] }) };
-const proposal = await propose(path, target, detector);
+const proposal =
+  falKey === undefined
+    ? await propose(path, concept, { apiKey: gatewayKey })
+    : await segment(path, concept, { apiKey: falKey });
 
 const started = Date.now();
-const verdicts = await photoVerifier({ apiKey: key, ...(process.env['VERIFIER_MODEL'] === undefined ? {} : { model: process.env['VERIFIER_MODEL'] }) })(proposal.photo, target, proposal.detections);
-const verifiedInMs = Date.now() - started;
+const verdicts = await secondOpinion({ apiKey: gatewayKey })(proposal.photo, concept, proposal.detections);
+const checkedInMs = Date.now() - started;
 
 const kept = verdicts.filter((verdict) => verdict.probability >= KEEP);
-const charged = money('USD', BigInt(kept.length) * 10_000n);
-const capped = charged.micros > parseMoney(CAP).micros ? parseMoney(CAP) : charged;
+const asked = money('USD', BigInt(kept.length) * 10_000n);
+const charged = asked.micros > parseMoney(CAP).micros ? parseMoney(CAP) : asked;
 
-console.log(`\n"find ${target}" in ${path} (${String(proposal.photo.width)}×${String(proposal.photo.height)})`);
-console.log(`  proposed by ${proposal.proposedBy} in ${String(proposal.tookMs)} ms · verified by ${verdicts[0]?.verifiedBy ?? 'nobody'} in ${String(verifiedInMs)} ms`);
+console.log(`\n"find every ${concept}" in ${path} (${String(proposal.photo.width)}×${String(proposal.photo.height)})`);
+console.log(`  ${proposal.proposedBy} proposed ${String(proposal.detections.length)} in ${String(proposal.tookMs)} ms`);
 for (const verdict of verdicts) {
   const box = verdict.detection.box;
   const at = `${String(box.x)},${String(box.y)} ${String(box.width)}×${String(box.height)}`;
-  console.log(`    ${verdict.probability >= KEEP ? '✓' : '·'} ${at.padEnd(22)} detector ${verdict.detection.confidence.toFixed(2)}  verifier ${verdict.probability.toFixed(2)}`);
+  console.log(
+    `    ${verdict.probability >= KEEP ? '✓' : '·'} ${at.padEnd(22)} proposer ${verdict.detection.confidence.toFixed(2)}  judge ${verdict.probability.toFixed(2)}  "${verdict.description}"`,
+  );
 }
-console.log(`  authorized ${CAP} · kept ${String(kept.length)} of ${String(verdicts.length)} at p ≥ ${String(KEEP)} · charged ${formatMoney(capped)}`);
+console.log(
+  `  checked in ${String(checkedInMs)} ms by ${verdicts[0]?.verifiedBy ?? 'nobody'} · kept ${String(kept.length)} of ${String(verdicts.length)} at p ≥ ${String(KEEP)}`,
+);
+console.log(`  authorized ${CAP} · charged ${formatMoney(charged)}`);

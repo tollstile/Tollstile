@@ -33,10 +33,12 @@ export function load(path: string): Photo {
 
 /** A crop as a PNG, for a verifier to look at. Padded, because a box that clips its subject reads as a miss. */
 export function cropPng(photo: Photo, box: Box, pad = 12): Buffer {
-  const x = Math.max(0, Math.round(box.x - pad));
-  const y = Math.max(0, Math.round(box.y - pad));
-  const width = Math.min(photo.width - x, Math.round(box.width + pad * 2));
-  const height = Math.min(photo.height - y, Math.round(box.height + pad * 2));
+  // A box from a model can be anywhere, including outside the image. Clamp it to something a
+  // filter can actually cut, rather than letting ffmpeg fail on a negative height.
+  const x = Math.min(Math.max(0, Math.round(box.x - pad)), Math.max(0, photo.width - 8));
+  const y = Math.min(Math.max(0, Math.round(box.y - pad)), Math.max(0, photo.height - 8));
+  const width = Math.max(8, Math.min(photo.width - x, Math.round(box.width + pad * 2)));
+  const height = Math.max(8, Math.min(photo.height - y, Math.round(box.height + pad * 2)));
   return execFileSync(
     FFMPEG,
     ['-v', 'error', '-i', photo.path, '-vf', `scale=${String(photo.width)}:${String(photo.height)},crop=${String(width)}:${String(height)}:${String(x)}:${String(y)}`, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'],

@@ -48,18 +48,43 @@ Ask for something that is not there, and nothing is charged:
 pnpm --filter @tollstile-examples/detection-pricing agent -- --target 'a helipad'
 ```
 
-## On a real photograph
-
-The drawn scene keeps the example honest and offline; a photograph needs a model at both ends. One proposes regions, another looks at each crop:
+## On a real photograph, with SAM 3
 
 ```bash
-export AI_GATEWAY_API_KEY='…'
-pnpm --filter @tollstile-examples/detection-pricing photo -- ~/Pictures/street.jpg 'a car'
+export FAL_KEY='…' AI_GATEWAY_API_KEY='…'
+pnpm --filter @tollstile-examples/detection-pricing photo -- street.jpg car
 ```
 
-`DETECTOR_MODEL` and `VERIFIER_MODEL` choose them (`meta/llama-4-maverick` proposing and `openai/gpt-4o-mini` checking, by default). Keeping them from different vendors is the point: a model grading its own output is the thing this pattern exists to avoid. `DETECTOR_URL` points the proposer somewhere else entirely — Meta's own API speaks the same shape at `https://api.llama.com/compat/v1/chat/completions`.
+A real run, on a photograph of a suburban intersection with three cars in it:
 
-Images are read and cropped with `ffmpeg`, so no image library is pulled in, and nothing but the crop for one detection is ever sent anywhere.
+```
+"find every car" in street.jpg (1024×768)
+  fal-ai/sam-3 proposed 3 in 2067 ms
+    ✓ 138,580 347×114        proposer 0.97  judge 0.99  "A gray sedan parked on the street."
+    ✓ 437,555 229×89         proposer 0.97  judge 0.98  "A dark gray SUV parked beside another car."
+    ✓ 311,564 125×34         proposer 0.93  judge 0.96  "A white vehicle partially obscured by a gray car."
+  checked in 38520 ms by typesafe-ai/jev · kept 3 of 3 at p ≥ 0.7
+  authorized $0.20 · charged $0.03
+```
+
+And the case a flat fee gets wrong:
+
+```
+"find every bicycle" — fal-ai/sam-3 proposed 0 in 1353 ms
+  authorized $0.20 · charged $0.00
+```
+
+**Three models, none of them marking their own homework.**
+
+- **SAM 3** (`fal-ai/sam-3`) takes the noun phrase and returns every instance, with a mask, a box and its own score. It is confident — `0.97` — and the price depends on none of that.
+- **A vision model** says what each crop *shows*, in one sentence. It did not choose the crop.
+- **Jev**, a System One model, says whether that sentence is the thing the buyer asked for, as a calibrated probability. The charge is the survivors at `p ≥ 0.7`.
+
+The two stages exist because neither model can do the job alone: the gateway refuses `logprobs` alongside an image, so a vision model can only *state* a confidence, and a model stating its own certainty is guessing. Jev answers with a probability but cannot see. Describe, then decide.
+
+Thirty-eight seconds for three crops is not the models being slow: the gateway team used here allows **five vision calls a minute**, so the crops queue. On a paid tier they go out together. `SPACING_MS` in `src/second-opinion.ts` is the knob.
+
+Without `FAL_KEY`, the proposer falls back to a vision model asked for boxes — which is worse at it, and a useful demonstration of why a segmentation model exists. Images are read and cropped with `ffmpeg`; nothing but one detection's crop leaves the machine at a time.
 
 ## The rules this encodes
 
@@ -71,6 +96,8 @@ Images are read and cropped with `ffmpeg`, so no image library is pulled in, and
 
 ## What has actually been run
 
-The output above is a real run of this example: the detector, the rule verifier, `upTo()`, and a settlement of `$0.04` against a `$0.20` ceiling on the test rail. The model verifier is exercised in tests against a stubbed gateway — the logprob arithmetic, the failure paths — but **the numbers a real vision model gives on real imagery are not measured here**, and they are the ones that decide whether this pricing scheme is fair. Measure them on your own images before charging anyone: how often the verifier agrees with a person, and what it costs per image.
+Both outputs above are real runs, on 20 September 2026: the drawn scene with the rule verifier, and the photograph through SAM 3, a vision model and Jev. Money moved on the test rail — `$0.04` and `$0.03` against `$0.20` ceilings, and `$0.00` for the bicycle.
+
+What is **not** established is accuracy at any scale. Three cars in one photograph, agreed on by two models, is an anecdote. Before this decides anyone's invoice, measure the thing that matters: how often the judge agrees with a person, over enough images to mean something, including the ones where the answer is arguable — a car reflected in a window, a van, a photograph of a car on a billboard. Publish that number next to the price.
 
 The pattern, and when not to use it, is written up in [Charge for what was found](https://tollstile.com/docs/guides/charge-for-what-was-found).
