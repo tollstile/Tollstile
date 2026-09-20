@@ -40,13 +40,20 @@
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "verify-live": "tsx scripts/verify-live.ts"
   },
   "peerDependencies": {
     "tollstile": "workspace:^"
   },
   "devDependencies": {
+    "@tollstile/fetch": "workspace:^",
+    "@tollstile/sqlite": "workspace:^",
     "@x402/core": "2.25.0",
-    "tollstile": "workspace:^"
+    "@x402/evm": "2.26.0",
+    "@x402/fetch": "2.26.0",
+    "tollstile": "workspace:^",
+    "tsx": "4.23.13",
+    "viem": "2.56.8"
   }
 }

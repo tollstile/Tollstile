@@ -7,11 +7,18 @@
       ],
       "tollstile/testing": [
         "../tollstile/src/testing/index.ts"
+      ],
+      "@tollstile/fetch": [
+        "../fetch/src/index.ts"
+      ],
+      "@tollstile/sqlite": [
+        "../sqlite/src/index.ts"
       ]
     }
   },
   "include": [
     "src",
-    "test"
+    "test",
+    "scripts"
   ]
 }
