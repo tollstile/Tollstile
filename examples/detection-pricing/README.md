@@ -57,6 +57,8 @@ pnpm --filter @tollstile-examples/detection-pricing photo -- street.jpg car
 
 A real run, on a photograph of a suburban intersection with three cars in it:
 
+![Three cars boxed, each labelled with SAM's score, the judge's probability, and the cent charged](https://tollstile.com/img/detection-cars.jpg)
+
 ```
 "find every car" in street.jpg (1024×768)
   fal-ai/sam-3 proposed 3 in 2067 ms
