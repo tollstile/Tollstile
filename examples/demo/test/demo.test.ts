@@ -145,6 +145,7 @@ describe('the demo worker', () => {
 
     expect(catalog.offers.map((offer) => offer.call)).toEqual([
       'GET /v1/forecast?city=',
+      'POST /v1/research',
       'POST /v1/translate',
       'POST /v1/summarize',
       'tool:forecast',
@@ -153,8 +154,9 @@ describe('the demo worker', () => {
     ]);
     // The plan is Tollstile's own account of the route, not a second description that could drift.
     expect(catalog.offers[0]?.plan).toMatchObject({ pricing: 'fixed', rails: [{ rail: 'test' }] });
-    expect(catalog.offers[1]?.plan.pricing).toBe('computed');
-    expect(catalog.offers[2]?.plan).toMatchObject({ pricing: 'up_to', access: ['credits', 'payPerCall'] });
+    expect(catalog.offers[1]?.plan.pricing).toBe('up_to');
+    expect(catalog.offers[2]?.plan.pricing).toBe('computed');
+    expect(catalog.offers[3]?.plan).toMatchObject({ pricing: 'up_to', access: ['credits', 'payPerCall'] });
   });
 
   it('answers 402, takes the quote, settles, and records the charge', async () => {
@@ -301,5 +303,53 @@ describe('the demo worker', () => {
     expect(paid._meta?.['tollstile/payment-required']).toMatchObject({ error: { code: 'access_denied', detail: 'approval_unavailable' } });
     const { charges } = (await (await call('/api/charges')).json()) as { charges: { payment: string }[] };
     expect(charges).toEqual([expect.objectContaining({ payment: 'released' })]);
+  });
+});
+
+describe('research, priced at what the answer was worth', () => {
+  const ask = async (question: string) => {
+    const body = JSON.stringify({ question });
+    const headers = { 'content-type': 'application/json' };
+    const unpaid = await call('/v1/research', { method: 'POST', headers, body });
+    const paid = await call('/v1/research', { method: 'POST', headers: { ...headers, payment: `test quote=${await quoteOf(unpaid)}` }, body });
+    return { unpaid, paid, result: (await paid.json()) as { answered: boolean; pricing: { charged: string; tier: string; judgedBy: string } } };
+  };
+
+  it('settles a tier below the ceiling it authorized', async () => {
+    const one = await ask('What do anglers say about fishing?');
+    expect(one.unpaid.status).toBe(402);
+    expect(one.result.pricing).toMatchObject({ charged: '$0.01', tier: 'lookup', judgedBy: 'rules' });
+
+    const deep = await ask('Should I book the ferry in September, given the swell and a refund?');
+    expect(deep.result.pricing).toMatchObject({ charged: '$0.04', tier: 'investigation' });
+    expect(deep.paid.headers.get('payment-receipt')).toMatch(/^test_settlement_/);
+  });
+
+  it('charges nothing when the desk found nothing, and releases the hold', async () => {
+    const { paid, result } = await ask('What is the capital of Mars?');
+
+    expect(paid.status).toBe(422);
+    expect(paid.headers.get('payment-receipt')).toBeNull();
+    expect(result).toMatchObject({ answered: false, pricing: { charged: '$0.00', tier: 'none' } });
+  });
+
+  it('serves the conversation at /jev without touching the front page', async () => {
+    const jev = await call('/jev');
+    expect(jev.status).toBe(200);
+    expect(jev.headers.get('content-type')).toContain('text/html');
+    expect(await jev.text()).toContain('Ask, then see what it cost');
+
+    const front = await call('/');
+    expect(await front.text()).not.toContain('Ask, then see what it cost');
+  });
+
+  it('lets a page on another origin call it', async () => {
+    const preflight = await call('/v1/research', { method: 'OPTIONS' });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-headers')).toContain('payment');
+
+    const unpaid = await call('/v1/research', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(unpaid.headers.get('access-control-allow-origin')).toBe('*');
+    expect(unpaid.headers.get('access-control-expose-headers')).toContain('payment-receipt');
   });
 });

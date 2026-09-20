@@ -1,5 +1,6 @@
 import { credits, payPerCall, upTo, type Gate, type Rail, type Tollstile } from 'tollstile';
 import { pricePerWord } from './handlers';
+import { RESEARCH_CAP } from './judge';
 import { createToll, credits as balance, guests, type Env } from './toll';
 
 /**
@@ -17,6 +18,7 @@ export type Offer = {
 
 export type Offers = {
   readonly forecast: Offer;
+  readonly research: Offer;
   readonly translate: Offer;
   readonly summarize: Offer;
   readonly toolForecast: Offer;
@@ -31,6 +33,13 @@ export function offers(env: Env, toll: Tollstile<readonly Rail[]> = createToll(e
       price: '$0.01',
       description: 'Tomorrow in one word, for a city.',
       gate: toll.price('$0.01'),
+    },
+    research: {
+      call: 'POST /v1/research',
+      price: 'up to $0.05, settled at what the answer was worth',
+      description:
+        'Authorize a ceiling; a judge reads the answer and settles $0.01, $0.02, $0.04 — or nothing, if the desk found nothing. The response says which tier, how confident, and who judged it.',
+      gate: toll.price(upTo(RESEARCH_CAP), { resource: 'POST /v1/research' }),
     },
     translate: {
       call: 'POST /v1/translate',

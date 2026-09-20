@@ -1,7 +1,9 @@
 import { paid } from '@tollstile/fetch';
 import type { Payment, Principal, Rail } from 'tollstile';
 import { catalog, offers } from './catalog';
-import { forecast, summarize, translate, words } from './handlers';
+import { chat } from './chat';
+import { forecast, research, summarize, translate, words } from './handlers';
+import { answerAnything, judge, MAX_QUESTION, RESEARCH_CAP, type Verdict } from './judge';
 import { mcp } from './mcp';
 import { page } from './page';
 import { overLimit, pruneLedger } from './limits';
@@ -24,6 +26,8 @@ export default {
     const priced = offers(env);
 
     if ((url.pathname === '/' || url.pathname === '/pay') && request.method === 'GET') return page(url.host);
+    // The research desk as a conversation: same ceiling every question, a different settlement each time.
+    if (url.pathname === '/jev' && request.method === 'GET') return chat();
     // What is on sale, what it costs, and what happens to the money — before anything is called.
     if (url.pathname === '/.well-known/tollstile' && request.method === 'GET') {
       return Response.json(catalog(env), { headers: { 'cache-control': 'public, max-age=60', 'access-control-allow-origin': '*' } });
@@ -54,6 +58,26 @@ export default {
         },
         { principal },
       )(request);
+    }
+
+    // A ceiling the payer authorizes, settled at what a judge says the answer was worth. Browsers
+    // call this one from other origins (the chat demo), so it carries CORS; the rest do not.
+    if (url.pathname === '/v1/research' && request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: preflightHeaders() });
+    }
+    if (url.pathname === '/v1/research' && request.method === 'POST') {
+      const answered = await paid(priced.research.gate, async (paidRequest, { payment }) => {
+        const question = (await questionOf(paidRequest)).slice(0, MAX_QUESTION);
+        const found = await desk(question, env);
+        const verdict = await judge({ question, answer: found.answer, sources: found.sources.length, characters: found.answer.length }, env.JEV_API_KEY);
+
+        // Nothing was answered, so nothing is charged: a 4xx releases the hold.
+        if (!verdict.answered) return Response.json({ answered: false, sources: [], pricing: pricing(verdict, '$0.00') }, { status: 422 });
+
+        await payment.fulfill({ amount: verdict.amount });
+        return Response.json({ answered: true, answer: found.answer, sources: found.sources, pricing: pricing(verdict, verdict.amount) });
+      })(request);
+      return shared(answered);
     }
 
     // What a paid call produced, by the reference a retry was handed in `already_paid`.
@@ -124,4 +148,49 @@ async function recentCharges(env: Env): Promise<Response> {
     { charges: results },
     { headers: { 'cache-control': 'no-store', 'access-control-allow-origin': '*' } },
   );
+}
+
+/** The buyer's own charge, explained: a price nobody can question is a price nobody trusts. */
+function pricing(verdict: Verdict, charged: string) {
+  return {
+    charged,
+    authorized: RESEARCH_CAP,
+    tier: verdict.answered ? verdict.tier : 'none',
+    judgedBy: verdict.judgedBy,
+    confidence: Number(verdict.confidence.toFixed(2)),
+    reason: verdict.reason,
+  };
+}
+
+/**
+ * The corpus first, because it is free and deterministic. Anything it does not hold is written by
+ * a model, when this deployment has a key for one — and judged the same way either.
+ */
+async function desk(question: string, env: Env): Promise<{ answer: string; sources: readonly string[] }> {
+  const found = research(question);
+  if (found.sources.length > 0) return found;
+  const written = await answerAnything(question, env.JEV_API_KEY);
+  return written === undefined ? found : { answer: written.answer, sources: [written.source] };
+}
+
+async function questionOf(request: Request): Promise<string> {
+  const body: unknown = await request.json().catch(() => ({}));
+  return typeof body === 'object' && body !== null && 'question' in body && typeof body.question === 'string' ? body.question : '';
+}
+
+function preflightHeaders(): Record<string, string> {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-headers': 'content-type, payment, idempotency-key',
+    'access-control-max-age': '86400',
+  };
+}
+
+/** Lets a page on another origin read the 402 and the receipt. Nothing here is private to an origin. */
+function shared(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set('access-control-allow-origin', '*');
+  headers.set('access-control-expose-headers', 'payment-receipt, retry-after');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }

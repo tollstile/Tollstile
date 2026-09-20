@@ -9,13 +9,23 @@ import { ANSWERED_FLOOR, CONFIDENCE_FLOOR, ruleJudge, tierOf, TIERS, type Judge,
  * paid route, and a free trial that ends should change the numbers, not break the server.
  */
 
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
-const MODEL = 'jev-latest';
+const TYPESAFE = { endpoint: 'https://api.typesafe.ai/v1/systemone', model: 'jev-latest' };
+/**
+ * A key beginning `vck_` is a Vercel AI Gateway key, not a TypeSafe one. The gateway serves the
+ * same request shape at its own address under another model id, and answering `401` is how a key
+ * sent to the wrong one fails — so the key decides the door.
+ */
+const GATEWAY = { endpoint: 'https://ai-gateway.vercel.sh/typesafe/v1/systemone', model: 'typesafe-ai/jev' };
 const TIMEOUT_MS = 2_000;
+
+function provider(apiKey: string): { endpoint: string; model: string } {
+  return apiKey.startsWith('vck_') ? GATEWAY : TYPESAFE;
+}
 
 export type JevOptions = {
   /** Read from the environment by the caller. This file never reads `process.env`. */
   readonly apiKey: string | undefined;
+  /** Overrides the address chosen from the key's prefix. For tests. */
   readonly fetch?: typeof globalThis.fetch;
   readonly endpoint?: string;
   readonly timeoutMs?: number;
@@ -23,19 +33,19 @@ export type JevOptions = {
 
 export function jevJudge(options: JevOptions): Judge {
   const call = options.fetch ?? globalThis.fetch;
-  const endpoint = options.endpoint ?? ENDPOINT;
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
 
   return async (work) => {
     const apiKey = options.apiKey;
     if (apiKey === undefined || apiKey === '') return await fallback(work, 'no JEV_API_KEY is set');
 
+    const via = provider(apiKey);
     let payload: unknown;
     try {
-      const response = await call(endpoint, {
+      const response = await call(options.endpoint ?? via.endpoint, {
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify(request(work)),
+        body: JSON.stringify(request(work, via.model)),
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) return await fallback(work, `Jev answered HTTP ${String(response.status)}`);
@@ -47,16 +57,18 @@ export function jevJudge(options: JevOptions): Judge {
     const answers = read(payload);
     if (answers === undefined) return await fallback(work, 'Jev answered in a shape this example does not know');
 
-    // Doubt costs the seller: an uncertain judgement charges the lowest tier, never a guess upward.
+    // The score is a position on the legend, so a confident answer takes the nearest level. Doubt
+    // rounds down instead, which is the one direction that costs the seller and not the buyer:
+    // 1.44 confident is an investigation, 1.44 unsure is a synthesis.
     const uncertain = answers.confidence < CONFIDENCE_FLOOR;
-    const tier = uncertain ? tierOf(0) : tierOf(answers.effort);
+    const tier = tierOf(uncertain ? Math.floor(answers.effort) : Math.round(answers.effort));
     return {
       answered: answers.answered >= ANSWERED_FLOOR,
       tier: tier.label,
       amount: tier.amount,
       confidence: answers.confidence,
       reason: uncertain
-        ? `judged ${answers.effort.toFixed(2)} on the effort scale with confidence ${answers.confidence.toFixed(2)}, below the ${String(CONFIDENCE_FLOOR)} floor, so the lowest tier was charged`
+        ? `judged ${answers.effort.toFixed(2)} on the effort scale with confidence ${answers.confidence.toFixed(2)}, below the ${String(CONFIDENCE_FLOOR)} floor, so it rounded down`
         : `judged ${answers.effort.toFixed(2)} on the effort scale (${TIERS.map((one) => one.label).join(' · ')}) with confidence ${answers.confidence.toFixed(2)}`,
       judgedBy: answers.model,
     };
@@ -67,9 +79,9 @@ export function jevJudge(options: JevOptions): Judge {
  * What leaves the server: the question, the answer this server wrote, and three counts. No headers,
  * no caller identity, no payment evidence. Listed here by hand so nothing joins it by accident.
  */
-function request(work: Work) {
+function request(work: Work, model: string) {
   return {
-    model: MODEL,
+    model,
     state: {
       question: work.question,
       answer: work.answer,
@@ -105,7 +117,7 @@ function read(payload: unknown): Answers | undefined {
   const effort = body.answers?.effort?.score;
   const confidence = body.answers?.effort?.confidence;
   if (typeof answered !== 'number' || typeof effort !== 'number' || typeof confidence !== 'number') return undefined;
-  return { answered, effort, confidence, model: typeof body.model === 'string' ? body.model : MODEL };
+  return { answered, effort, confidence, model: typeof body.model === 'string' ? body.model : 'jev' };
 }
 
 async function fallback(work: Work, why: string): Promise<ReturnType<Judge>> {

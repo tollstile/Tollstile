@@ -82,15 +82,38 @@ describe('the Jev judge', () => {
     const verdict = await judge(work);
     expect(Object.keys(sent['state'] as object).sort()).toEqual(['answer', 'characters_written', 'milliseconds_spent', 'question', 'sources_read']);
     expect(verdict).toMatchObject({ answered: true, tier: 'investigation', amount: '$0.04', judgedBy: 'jev-1.13.0' });
+    expect(sent['model']).toBe('jev-latest');
   });
 
-  it('charges the lowest tier when the judgement is not confident', async () => {
+  it('takes the nearest level when confident, and rounds down when it is not', async () => {
+    const answer = (score: number, confidence: number) =>
+      jevJudge({
+        apiKey: 'key-from-the-environment',
+        fetch: () => Promise.resolve(Response.json({ model: 'jev-1.13.0', answers: { answered: { noul: 0.9 }, effort: { score, confidence } } })),
+      })(work);
+
+    await expect(answer(0.99, 0.9)).resolves.toMatchObject({ tier: 'synthesis', amount: '$0.02' });
+    await expect(answer(1.6, 0.9)).resolves.toMatchObject({ tier: 'investigation', amount: '$0.04' });
+    // The same readings, unsure, round down rather than to the nearest: doubt costs the seller.
+    await expect(answer(1.6, 0.35)).resolves.toMatchObject({ tier: 'synthesis', amount: '$0.02' });
+    await expect(answer(0.99, 0.35)).resolves.toMatchObject({ tier: 'lookup', amount: '$0.01' });
+  });
+
+  it('sends a Vercel gateway key to the gateway, under its model id', async () => {
+    let address = '';
+    let model: unknown = null;
     const judge = jevJudge({
-      apiKey: 'key-from-the-environment',
-      fetch: () => Promise.resolve(Response.json({ model: 'jev-1.13.0', answers: { answered: { noul: 0.9 }, effort: { score: 2, confidence: 0.4 } } })),
+      apiKey: 'vck_not-a-real-key',
+      fetch: (url, init) => {
+        address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+        model = (JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as { model?: unknown }).model;
+        return Promise.resolve(Response.json({ model: 'typesafe-ai/jev', answers: { answered: { noul: 0.9 }, effort: { score: 2, confidence: 0.9 } } }));
+      },
     });
 
-    await expect(judge(work)).resolves.toMatchObject({ tier: 'lookup', amount: '$0.01' });
+    await expect(judge(work)).resolves.toMatchObject({ judgedBy: 'typesafe-ai/jev' });
+    expect(address).toBe('https://ai-gateway.vercel.sh/typesafe/v1/systemone');
+    expect(model).toBe('typesafe-ai/jev');
   });
 
   it('prices by the rules when there is no key, and says which', async () => {
