@@ -121,4 +121,4 @@ Both outputs above are real runs, on 20 September 2026: the drawn scene with the
 
 What is **not** established is accuracy at any scale. Three cars in one photograph, agreed on by two models, is an anecdote. Before this decides anyone's invoice, measure the thing that matters: how often the judge agrees with a person, over enough images to mean something, including the ones where the answer is arguable — a car reflected in a window, a van, a photograph of a car on a billboard. Publish that number next to the price.
 
-The pattern, and when not to use it, is written up in [Charge for what was found](https://tollstile.com/docs/guides/charge-for-what-was-found).
+The pattern, and when not to use it, is written up in [Charge per detection with SAM 3](https://tollstile.com/docs/guides/charge-per-detection-with-sam-3).
