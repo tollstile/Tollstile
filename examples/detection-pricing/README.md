@@ -48,6 +48,19 @@ Ask for something that is not there, and nothing is charged:
 pnpm --filter @tollstile-examples/detection-pricing agent -- --target 'a helipad'
 ```
 
+## On a real photograph
+
+The drawn scene keeps the example honest and offline; a photograph needs a model at both ends. One proposes regions, another looks at each crop:
+
+```bash
+export AI_GATEWAY_API_KEY='…'
+pnpm --filter @tollstile-examples/detection-pricing photo -- ~/Pictures/street.jpg 'a car'
+```
+
+`DETECTOR_MODEL` and `VERIFIER_MODEL` choose them (`meta/llama-4-maverick` proposing and `openai/gpt-4o-mini` checking, by default). Keeping them from different vendors is the point: a model grading its own output is the thing this pattern exists to avoid. `DETECTOR_URL` points the proposer somewhere else entirely — Meta's own API speaks the same shape at `https://api.llama.com/compat/v1/chat/completions`.
+
+Images are read and cropped with `ffmpeg`, so no image library is pulled in, and nothing but the crop for one detection is ever sent anywhere.
+
 ## The rules this encodes
 
 1. **The buyer is billed on the verifier, never on the detector.** Tested.

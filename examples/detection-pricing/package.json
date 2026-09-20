@@ -5,7 +5,8 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "agent": "tsx src/agent.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "photo": "tsx src/photo-run.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.1",
