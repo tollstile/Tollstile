@@ -13,6 +13,7 @@ function d1(): D1Database {
   db.exec(readFileSync(new URL('../migrations/0002_results.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0003_clients.sql', import.meta.url), 'utf8'));
   db.exec(readFileSync(new URL('../migrations/0004_results_by_key.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0005_usage.sql', import.meta.url), 'utf8'));
   const statement = (sql: string, params: readonly (string | number | null)[] = []): D1PreparedStatement => ({
     bind: (...values) => statement(sql, values),
     all: () => Promise.resolve({ results: db.prepare(sql).all(...params) as never, success: true }),
@@ -331,6 +332,17 @@ describe('research, priced at what the answer was worth', () => {
     expect(paid.status).toBe(422);
     expect(paid.headers.get('payment-receipt')).toBeNull();
     expect(result).toMatchObject({ answered: false, pricing: { charged: '$0.00', tier: 'none' } });
+  });
+
+  it('stops calling the paid gateway once the day\'s ceiling is reached', async () => {
+    const { gatewayBudgetLeft } = await import('../src/limits');
+    const today = Date.parse('2026-09-20T10:00:00Z');
+
+    expect(await gatewayBudgetLeft(env, today, 2)).toBe(true);
+    expect(await gatewayBudgetLeft(env, today, 2)).toBe(true);
+    expect(await gatewayBudgetLeft(env, today, 2)).toBe(false);
+    // A new day starts the count again.
+    expect(await gatewayBudgetLeft(env, Date.parse('2026-09-21T00:01:00Z'), 2)).toBe(true);
   });
 
   it('serves the conversation at /jev without touching the front page', async () => {

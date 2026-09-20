@@ -6,7 +6,7 @@ import { forecast, research, summarize, translate, words } from './handlers';
 import { answerAnything, judge, MAX_QUESTION, RESEARCH_CAP, type Verdict } from './judge';
 import { mcp } from './mcp';
 import { page } from './page';
-import { overLimit, pruneLedger } from './limits';
+import { gatewayBudgetLeft, overLimit, pruneLedger } from './limits';
 import { createToll, keepResult, readResult, type Env } from './toll';
 
 /** The demo's "member": callers who send this key draw from prepaid credits instead of paying. */
@@ -68,8 +68,10 @@ export default {
     if (url.pathname === '/v1/research' && request.method === 'POST') {
       const answered = await paid(priced.research.gate, async (paidRequest, { payment }) => {
         const question = (await questionOf(paidRequest)).slice(0, MAX_QUESTION);
-        const found = await desk(question, env);
-        const verdict = await judge({ question, answer: found.answer, sources: found.sources.length, characters: found.answer.length }, env.JEV_API_KEY);
+        // Past the day's ceiling the gateway is left alone: the corpus answers and the rules price it.
+        const key = (await gatewayBudgetLeft(env, Date.now())) ? env.JEV_API_KEY : undefined;
+        const found = await desk(question, env, key);
+        const verdict = await judge({ question, answer: found.answer, sources: found.sources.length, characters: found.answer.length }, key);
 
         // Nothing was answered, so nothing is charged: a 4xx releases the hold.
         if (!verdict.answered) return Response.json({ answered: false, sources: [], pricing: pricing(verdict, '$0.00') }, { status: 422 });
@@ -166,10 +168,10 @@ function pricing(verdict: Verdict, charged: string) {
  * The corpus first, because it is free and deterministic. Anything it does not hold is written by
  * a model, when this deployment has a key for one — and judged the same way either.
  */
-async function desk(question: string, env: Env): Promise<{ answer: string; sources: readonly string[] }> {
+async function desk(question: string, env: Env, key: string | undefined): Promise<{ answer: string; sources: readonly string[] }> {
   const found = research(question);
   if (found.sources.length > 0) return found;
-  const written = await answerAnything(question, env.JEV_API_KEY);
+  const written = await answerAnything(question, key);
   return written === undefined ? found : { answer: written.answer, sources: [written.source] };
 }
 
