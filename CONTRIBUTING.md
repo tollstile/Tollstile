@@ -11,7 +11,7 @@ Read these once. Reviews refer to them.
 - [DESIGN.md](./DESIGN.md) — why the model looks the way it does
 - [CODING_RULES.md](./CODING_RULES.md) — how code is written here
 
-For anything larger than a bug fix, open an issue first so the approach can be agreed before you write it.
+For anything larger than a bug fix, open a [feature proposal](https://github.com/tollstile/tollstile/issues/new?template=feature-proposal.yml) first so the approach can be agreed before you write it.
 
 ## Development
 
