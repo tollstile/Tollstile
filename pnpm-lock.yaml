@@ -99,6 +99,28 @@ importers:
         specifier: 4.131.2
         version: 4.131.2(@types/node@22.20.2)
 
+  examples/detection-pricing:
+    dependencies:
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.7)
+      '@tollstile/hono':
+        specifier: workspace:^
+        version: link:../../packages/hono
+      hono:
+        specifier: 4.13.7
+        version: 4.13.7
+      tollstile:
+        specifier: workspace:^
+        version: link:../../packages/tollstile
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.2
+      tsx:
+        specifier: 4.23.13
+        version: 4.23.13
+
   examples/express:
     dependencies:
       '@tollstile/express':
@@ -138,6 +160,28 @@ importers:
       '@tollstile/x402':
         specifier: workspace:^
         version: link:../../packages/x402
+      hono:
+        specifier: 4.13.7
+        version: 4.13.7
+      tollstile:
+        specifier: workspace:^
+        version: link:../../packages/tollstile
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.2
+      tsx:
+        specifier: 4.23.13
+        version: 4.23.13
+
+  examples/jev-pricing:
+    dependencies:
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.7)
+      '@tollstile/hono':
+        specifier: workspace:^
+        version: link:../../packages/hono
       hono:
         specifier: 4.13.7
         version: 4.13.7

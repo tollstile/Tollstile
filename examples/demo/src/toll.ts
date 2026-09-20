@@ -11,6 +11,8 @@ export type Env = {
   readonly READS: RateLimit;
   /** Signs quotes. Set with `wrangler secret put TOLLSTILE_SECRET`; quotes must verify across isolates. */
   readonly TOLLSTILE_SECRET: string;
+  /** Optional. With it, `/v1/research` is priced by Jev; without it, by the rules. `wrangler secret put JEV_API_KEY`. */
+  readonly JEV_API_KEY?: string;
 };
 
 /** Prepaid credits for the demo's "member" key. In memory, so they reset when an isolate does — a real deployment keeps balances in its own database. */

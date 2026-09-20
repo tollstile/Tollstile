@@ -52,3 +52,23 @@ export async function pruneLedger(env: Env, now: number): Promise<void> {
     env.DB.prepare(`DELETE FROM tollstile_claims WHERE expires_at < ?1`).bind(now),
   ]);
 }
+
+/**
+ * The demo's own ceiling on spending someone else's money.
+ *
+ * Paying here is free — that is the point of the test rail — so nothing in the payment path limits
+ * how often a stranger can make this Worker call a paid model. This does: past the day's ceiling
+ * the gateway is left alone and the rules price the work, which costs nothing and still answers.
+ */
+export const GATEWAY_CALLS_PER_DAY = 500;
+
+export async function gatewayBudgetLeft(env: { readonly DB: D1Database }, now: number, limit = GATEWAY_CALLS_PER_DAY): Promise<boolean> {
+  const day = new Date(now).toISOString().slice(0, 10);
+  const rows = await env.DB.prepare(
+    'INSERT INTO demo_gateway_usage (day, calls) VALUES (?1, 1) ON CONFLICT(day) DO UPDATE SET calls = calls + 1 RETURNING calls',
+  )
+    .bind(day)
+    .all<{ calls: number }>();
+  const calls = rows.results[0]?.calls ?? 0;
+  return calls <= limit;
+}
