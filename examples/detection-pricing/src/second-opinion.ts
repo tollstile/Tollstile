@@ -5,9 +5,11 @@ import type { Verdict } from './verify';
 /**
  * The second opinion, in two stages, because neither model can do it alone.
  *
- * A vision model can look at a crop but cannot be asked for a calibrated number — the gateway
- * refuses `logprobs` alongside an image, and a model writing `"confidence": 0.9` is guessing at
- * its own certainty. A System One model answers with a calibrated probability but cannot see.
+ * A vision model can look at a crop but will not give you a number. Asking it to state a
+ * confidence gets you a guess at its own certainty; asking for `logprobs` through this gateway
+ * returns an empty list, for text and images alike. A System One model answers with a calibrated
+ * probability but cannot see. Measured: the vision model and a general LLM both answer a crop of a
+ * car's wheel with a confident yes, and only the judge says 0.85 — a number a threshold can act on.
  *
  * So: the vision model says what the crop **shows**, in one sentence, and the judge says whether
  * that sentence is the thing that was asked for. The number that decides the money comes from the

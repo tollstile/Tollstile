@@ -17,8 +17,16 @@ export type Verifier = (image: Uint8Array, target: string, detections: readonly 
 /** The same second opinion, over a photograph's crops rather than the drawn scene's. */
 export type PhotoVerifier = (photo: Photo, target: string, detections: readonly Detection[]) => Promise<readonly Verdict[]>;
 
-/** A detection is charged for at or above this. Publish it: a threshold a buyer cannot see is a threshold they cannot argue with. */
-export const KEEP = 0.7;
+/**
+ * A detection is charged for at or above this. Publish it: a threshold a buyer cannot see is a
+ * threshold they cannot argue with.
+ *
+ * 0.9 rather than 0.7 because of one measured case. A crop of a car's front wheel is described as
+ * "a car wheel and part of the vehicle's body", and the judge answers 0.85 — doubt, but not enough
+ * doubt at 0.7. The three real cars in the same photograph score 0.98 and above, so the threshold
+ * has room to move. See the README.
+ */
+export const KEEP = 0.9;
 
 const ENDPOINT = 'https://ai-gateway.vercel.sh/v1/chat/completions';
 const MODEL = 'openai/gpt-4o-mini';

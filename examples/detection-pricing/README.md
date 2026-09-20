@@ -9,7 +9,7 @@ pnpm --filter @tollstile-examples/detection-pricing agent   # in another termina
 
 ```
 "find a solar panel" — authorized $0.20
-  detector proposed 6, verifier kept 4 at p ≥ 0.7
+  detector proposed 6, verifier kept 4 at p ≥ 0.9
     ✓ 40,48 56×34          detector 0.99  verifier 0.90
     ✓ 108,48 56×34         detector 0.99  verifier 0.90
     · 210,60 34×28         detector 0.96  verifier 0.15
@@ -65,7 +65,7 @@ A real run, on a photograph of a suburban intersection with three cars in it:
     ✓ 138,580 347×114        proposer 0.97  judge 0.99  "A gray sedan parked on the street."
     ✓ 437,555 229×89         proposer 0.97  judge 0.98  "A dark gray SUV parked beside another car."
     ✓ 311,564 125×34         proposer 0.93  judge 0.96  "A white vehicle partially obscured by a gray car."
-  checked in 38520 ms by typesafe-ai/jev · kept 3 of 3 at p ≥ 0.7
+  checked in 38520 ms by typesafe-ai/jev · kept 3 of 3 at p ≥ 0.9
   authorized $0.20 · charged $0.03
 ```
 
@@ -80,9 +80,28 @@ And the case a flat fee gets wrong:
 
 - **SAM 3** (`fal-ai/sam-3`) takes the noun phrase and returns every instance, with a mask, a box and its own score. It is confident — `0.97` — and the price depends on none of that.
 - **A vision model** says what each crop *shows*, in one sentence. It did not choose the crop.
-- **Jev**, a System One model, says whether that sentence is the thing the buyer asked for, as a calibrated probability. The charge is the survivors at `p ≥ 0.7`.
+- **Jev**, a System One model, says whether that sentence is the thing the buyer asked for, as a calibrated probability. The charge is the survivors at `p ≥ 0.9` — a threshold chosen from the measurement below, not from taste.
 
-The two stages exist because neither model can do the job alone: the gateway refuses `logprobs` alongside an image, so a vision model can only *state* a confidence, and a model stating its own certainty is guessing. Jev answers with a probability but cannot see. Describe, then decide.
+The two stages exist because neither model can do the job alone. A vision model will not give you a number: through this gateway `logprobs` come back empty — for text as well as images — and a model that *states* its own confidence is guessing at it. Jev answers with a probability but cannot see. Describe, then decide.
+
+### Is the judge earning its place?
+
+Measured on seven crops of the same photograph — the three cars, plus a wheel, a traffic light, a palm tree and bare road:
+
+| crop | truth | vision model, yes/no | describe → Jev | describe → general LLM |
+|---|---|---|---|---|
+| grey sedan | car | yes ✓ | 0.99 ✓ | 1.00 ✓ |
+| dark SUV | car | yes ✓ | 0.98 ✓ | 1.00 ✓ |
+| white car, half hidden | car | yes ✓ | 0.98 ✓ | 1.00 ✓ |
+| **front wheel only** | **not a car** | **yes ✗** | **0.85 ✗** | **1.00 ✗** |
+| traffic light | not a car | no ✓ | 0.02 ✓ | 0.00 ✓ |
+| palm tree | not a car | no ✓ | 0.01 ✓ | 0.00 ✓ |
+| empty road | not a car | no ✓ | 0.03 ✓ | 0.00 ✓ |
+| | | **6 / 7** | **6 / 7** | **6 / 7** |
+
+**Equal on accuracy. Not equal on what you can do about it.** All three are wrong about the wheel, but only the judge is *unsure* — 0.85, against a confident yes from the other two. The cars sit at 0.98 and above, so moving the threshold to `0.9` makes that column 7 / 7 and leaves the rest untouched. A yes/no has no such knob.
+
+That is the whole argument for the second stage, and it rests on seven crops of one photograph. Run it on yours before believing it.
 
 Thirty-eight seconds for three crops is not the models being slow: the gateway team used here allows **five vision calls a minute**, so the crops queue. On a paid tier they go out together. `SPACING_MS` in `src/second-opinion.ts` is the knob.
 
@@ -92,7 +111,7 @@ Without `FAL_KEY`, the proposer falls back to a vision model asked for boxes —
 
 1. **The buyer is billed on the verifier, never on the detector.** Tested.
 2. **Nothing found is free.** No survivors answers `422`, which releases the hold; the caller keeps the authorization.
-3. **The threshold is published.** `p ≥ 0.7` is in the response, with every detection's two numbers — what the detector said, what the verifier said — so a disputed invoice is a conversation about evidence.
+3. **The threshold is published.** `p ≥ 0.9` is in the response, with every detection's two numbers — what the detector said, what the verifier said — so a disputed invoice is a conversation about evidence.
 4. **A detection that could not be checked is not charged for.** A verifier that times out or errors scores `0`, which costs the seller rather than the buyer.
 5. **The billing log holds counts and probabilities, never the image.** Tested.
 

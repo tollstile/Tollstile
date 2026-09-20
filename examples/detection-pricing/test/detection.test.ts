@@ -66,7 +66,7 @@ describe('a route that charges for what survived a second opinion', () => {
 
     expect(lines).toHaveLength(1);
     expect(lines[0]).not.toMatch(/data:image|base64|iVBOR/);
-    expect(lines[0]).toMatch(/^charge=chg_\w+ target="a solar panel" proposed=6 verified=4 threshold=0\.7 probabilities=[\d.,]+ charged=\$0\.04 verifier=rules$/);
+    expect(lines[0]).toMatch(/^charge=chg_\w+ target="a solar panel" proposed=6 verified=4 threshold=0\.9 probabilities=[\d.,]+ charged=\$0\.04 verifier=rules$/);
   });
 });
 
