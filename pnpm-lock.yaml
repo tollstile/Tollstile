@@ -152,6 +152,28 @@ importers:
         specifier: 4.23.13
         version: 4.23.13
 
+  examples/jev-pricing:
+    dependencies:
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.7)
+      '@tollstile/hono':
+        specifier: workspace:^
+        version: link:../../packages/hono
+      hono:
+        specifier: 4.13.7
+        version: 4.13.7
+      tollstile:
+        specifier: workspace:^
+        version: link:../../packages/tollstile
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.0
+        version: 22.20.2
+      tsx:
+        specifier: 4.23.13
+        version: 4.23.13
+
   examples/mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
