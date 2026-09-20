@@ -1,7 +1,14 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createApp, ruleVerifier, TRUTH } from '../src/app';
 import { detect } from '../src/detect';
-import { render, SCENE } from '../src/scene';
+import { HEIGHT, png, render, SCENE, WIDTH } from '../src/scene';
+
+/** The photo-reading paths need a file on disk; the drawn scene is one, written where any machine has room. */
+const photoPath = join(mkdtempSync(join(tmpdir(), 'tollstile-detection-')), 'scene.png');
+writeFileSync(photoPath, png(render(), WIDTH, HEIGHT));
 import { KEEP, modelVerifier, type Verifier } from '../src/verify';
 
 const ask = async (app: ReturnType<typeof createApp>, target = 'a solar panel') => {
@@ -104,10 +111,9 @@ describe('the model verifier', () => {
 describe('SAM as the proposer', () => {
   it('turns centre-based fractions into pixel boxes, and keeps its score for the record only', async () => {
     const { segment } = await import('../src/sam');
-    const photo = '/Users/yoshida/.claude/uploads/b4507ce0-1457-4767-a9d5-0820d398a1a6/9f5ae28c-image.jpg';
     let sent: Record<string, unknown> = {};
 
-    const result = await segment(photo, 'a car', {
+    const result = await segment(photoPath, 'a car', {
       apiKey: 'key-from-the-environment',
       fetch: (_url, init) => {
         sent = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<string, unknown>;
@@ -129,7 +135,7 @@ describe('the two-stage second opinion', () => {
   it('asks what the crop shows, then whether that is the concept, and bills on the second answer', async () => {
     const { secondOpinion } = await import('../src/second-opinion');
     const { load } = await import('../src/photo');
-    const photo = load('/Users/yoshida/.claude/uploads/b4507ce0-1457-4767-a9d5-0820d398a1a6/9f5ae28c-image.jpg');
+    const photo = load(photoPath);
     const seen: string[] = [];
 
     const verdicts = await secondOpinion({
@@ -144,7 +150,7 @@ describe('the two-stage second opinion', () => {
             : Response.json({ model: 'typesafe-ai/jev', answers: { matches: { noul: 0.97 } } }),
         );
       },
-    })(photo, 'a car', [{ box: { x: 430, y: 550, width: 230, height: 90 }, confidence: 0.96, pixels: 20_700 }]);
+    })(photo, 'a car', [{ box: { x: 40, y: 48, width: 56, height: 34 }, confidence: 0.96, pixels: 1_904 }]);
 
     expect(seen).toEqual(['https://ai-gateway.vercel.sh/v1/chat/completions', 'https://ai-gateway.vercel.sh/typesafe/v1/systemone']);
     expect(verdicts[0]).toMatchObject({ probability: 0.97, verifiedBy: 'typesafe-ai/jev', description: 'A dark gray SUV parked beside a silver car.' });
@@ -153,10 +159,10 @@ describe('the two-stage second opinion', () => {
   it('scores a crop it could not describe as zero', async () => {
     const { secondOpinion } = await import('../src/second-opinion');
     const { load } = await import('../src/photo');
-    const photo = load('/Users/yoshida/.claude/uploads/b4507ce0-1457-4767-a9d5-0820d398a1a6/9f5ae28c-image.jpg');
+    const photo = load(photoPath);
 
     const verdicts = await secondOpinion({ apiKey: 'key', spacingMs: 0, fetch: () => Promise.resolve(new Response('no', { status: 500 })) })(photo, 'a car', [
-      { box: { x: 430, y: 550, width: 230, height: 90 }, confidence: 0.96, pixels: 20_700 },
+      { box: { x: 40, y: 48, width: 56, height: 34 }, confidence: 0.96, pixels: 1_904 },
     ]);
 
     expect(verdicts[0]).toMatchObject({ probability: 0, verifiedBy: 'unavailable' });
