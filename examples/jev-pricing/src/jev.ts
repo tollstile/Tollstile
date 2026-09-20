@@ -25,9 +25,14 @@ function provider(apiKey: string): { endpoint: string; model: string } {
 export type JevOptions = {
   /** Read from the environment by the caller. This file never reads `process.env`. */
   readonly apiKey: string | undefined;
-  /** Overrides the address chosen from the key's prefix. For tests. */
-  readonly fetch?: typeof globalThis.fetch;
+  /**
+   * A server that speaks `POST /v1/systemone` itself, instead of the address the key implies —
+   * [LocalJev](https://github.com/githubnext/localjev) on `http://127.0.0.1:8080`, say. With one
+   * set, no key is needed: the judgement never leaves the machine.
+   */
   readonly endpoint?: string;
+  readonly model?: string;
+  readonly fetch?: typeof globalThis.fetch;
   readonly timeoutMs?: number;
 };
 
@@ -37,21 +42,23 @@ export function jevJudge(options: JevOptions): Judge {
 
   return async (work) => {
     const apiKey = options.apiKey;
-    if (apiKey === undefined || apiKey === '') return await fallback(work, 'no JEV_API_KEY is set');
+    const local = options.endpoint;
+    if (local === undefined && (apiKey === undefined || apiKey === '')) return await fallback(work, 'no JEV_API_KEY is set');
 
-    const via = provider(apiKey);
+    const via = local === undefined ? provider(apiKey ?? '') : { endpoint: local, model: options.model ?? TYPESAFE.model };
     let payload: unknown;
     try {
-      const response = await call(options.endpoint ?? via.endpoint, {
+      const response = await call(via.endpoint, {
         method: 'POST',
-        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        // A local server needs no key, and is not sent one.
+        headers: apiKey === undefined || apiKey === '' ? { 'content-type': 'application/json' } : { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify(request(work, via.model)),
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) return await fallback(work, `Jev answered HTTP ${String(response.status)}`);
       payload = await response.json();
     } catch (error) {
-      return await fallback(work, `Jev was unreachable (${error instanceof Error ? error.name : 'error'})`);
+      return await fallback(work, `${local === undefined ? 'Jev' : local} was unreachable (${error instanceof Error ? error.name : 'error'})`);
     }
 
     const answers = read(payload);

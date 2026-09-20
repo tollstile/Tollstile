@@ -116,6 +116,24 @@ describe('the Jev judge', () => {
     expect(model).toBe('typesafe-ai/jev');
   });
 
+  it('calls a local judge with no key at all', async () => {
+    let sentAuthorization: string | null = 'unset';
+    let address = '';
+    const judge = jevJudge({
+      apiKey: undefined,
+      endpoint: 'http://127.0.0.1:8080/v1/systemone',
+      fetch: (url, init) => {
+        address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+        sentAuthorization = new Headers(init?.headers).get('authorization');
+        return Promise.resolve(Response.json({ model: 'localjev', answers: { answered: { noul: 0.9 }, effort: { score: 2, confidence: 0.9 } } }));
+      },
+    });
+
+    await expect(judge(work)).resolves.toMatchObject({ judgedBy: 'localjev', tier: 'investigation' });
+    expect(address).toBe('http://127.0.0.1:8080/v1/systemone');
+    expect(sentAuthorization).toBeNull();
+  });
+
   it('prices by the rules when there is no key, and says which', async () => {
     const verdict = await jevJudge({ apiKey: undefined })(work);
     expect(verdict.judgedBy).toBe('rules');

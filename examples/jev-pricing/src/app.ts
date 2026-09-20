@@ -22,7 +22,9 @@ export type AppOptions = {
 };
 
 export function createApp(options: AppOptions = {}): Hono {
-  const judge = options.judge ?? jevJudge({ apiKey: process.env['JEV_API_KEY'] });
+  // `JEV_URL` points at a server that speaks the same API — LocalJev, say — and needs no key.
+  const endpoint = process.env['JEV_URL'];
+  const judge = options.judge ?? jevJudge({ apiKey: process.env['JEV_API_KEY'], ...(endpoint === undefined ? {} : { endpoint }) });
   const log = options.log ?? ((line: string) => { console.log(line); });
   const app = new Hono();
 
