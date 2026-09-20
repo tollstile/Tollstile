@@ -379,6 +379,20 @@ describe('research, priced at what the answer was worth', () => {
     expect(await gatewayBudgetLeft(env, Date.parse('2026-09-21T00:01:00Z'), 2)).toBe(true);
   });
 
+  it('tells crawlers which two pages are pages, and keeps them out of the paid routes', async () => {
+    const robots = await call('/robots.txt');
+    expect(robots.status).toBe(200);
+    const body = await robots.text();
+    expect(body).toContain('Allow: /jev');
+    expect(body).toContain('Disallow: /v1/');
+    expect(body).toContain('Disallow: /mcp');
+    expect(body).toContain('Sitemap: https://demo.tollstile.com/sitemap.xml');
+
+    const sitemap = await call('/sitemap.xml');
+    expect(sitemap.headers.get('content-type')).toContain('application/xml');
+    expect(await sitemap.text()).toContain('<loc>https://demo.tollstile.com/jev</loc>');
+  });
+
   it('serves the conversation at /jev without touching the front page', async () => {
     const jev = await call('/jev');
     expect(jev.status).toBe(200);

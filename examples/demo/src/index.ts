@@ -26,6 +26,10 @@ export default {
     const priced = offers(env);
 
     if ((url.pathname === '/' || url.pathname === '/pay') && request.method === 'GET') return page(url.host);
+    // Crawlers may read the two pages. The paid routes answer 402 to everyone, which is not a page
+    // anybody should find in a search result, and the checkout carries a quote in its query string.
+    if (url.pathname === '/robots.txt' && request.method === 'GET') return robots(url.host);
+    if (url.pathname === '/sitemap.xml' && request.method === 'GET') return sitemap(url.host);
     // The research desk as a conversation: same ceiling every question, a different settlement each time.
     if (url.pathname === '/jev' && request.method === 'GET') return chat();
     // What is on sale, what it costs, and what happens to the money — before anything is called.
@@ -194,6 +198,19 @@ async function recentCharges(env: Env): Promise<Response> {
     { charges: results },
     { headers: { 'cache-control': 'no-store', 'access-control-allow-origin': '*' } },
   );
+}
+
+function robots(host: string): Response {
+  const body = ['User-agent: *', 'Allow: /$', 'Allow: /jev', 'Disallow: /v1/', 'Disallow: /mcp', 'Disallow: /pay', 'Disallow: /api/', '', `Sitemap: https://${host}/sitemap.xml`, ''].join('\n');
+  return new Response(body, { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
+}
+
+/** Two pages, so a crawler that is allowed to read them knows they exist. */
+function sitemap(host: string): Response {
+  const urls = ['', '/jev'].map((path) => `  <url><loc>https://${host}${path}</loc><changefreq>weekly</changefreq></url>`).join('\n');
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`, {
+    headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' },
+  });
 }
 
 /** The buyer's own charge, explained: a price nobody can question is a price nobody trusts. */
