@@ -68,6 +68,15 @@ const HTML = String.raw`<!doctype html>
   button:disabled { opacity: .5; cursor: default; }
   :focus-visible { outline: 3px solid var(--coin); outline-offset: 2px; }
 
+  .burst { align-self: stretch; background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--gate); padding: 12px 14px; }
+  .burst h3 { margin: 0 0 8px; font-size: .95rem; }
+  .burst table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+  .burst td { padding: 3px 6px 3px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .burst td.q { color: var(--muted); }
+  .burst td.n { font-family: ui-monospace, monospace; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .burst tr:last-child td { border-bottom: 0; }
+  .burst .sum { margin: 8px 0 0; font-size: .84rem; color: var(--muted); }
+  .burst .sum b { color: var(--text); }
   .note { color: var(--muted); font-size: .86rem; }
   .pending { color: var(--muted); font-size: .86rem; font-style: italic; }
   @media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
@@ -77,7 +86,7 @@ const HTML = String.raw`<!doctype html>
 <main>
   <header>
     <h1>Ask, then see what it cost</h1>
-    <p class="lede">A research desk you pay per question. Every question authorizes the <b>same $0.05</b> before the desk starts, and settles what the answer turned out to be worth — $0.01, $0.02, $0.04, or nothing at all. This page pays for real, on the test rail, against <code>POST /v1/research</code> on this server.</p>
+    <p class="lede">A research desk you pay per question. Every question authorizes the <b>same $0.05</b> before the desk starts, and settles what the answer turned out to be worth — an average over what the judge believes, or nothing at all. This page pays for real, on the test rail, against <code>POST /v1/research</code> on this server.</p>
   </header>
 
   <dl class="totals">
@@ -95,6 +104,7 @@ const HTML = String.raw`<!doctype html>
       <label for="question" class="sr-only" style="position:absolute;left:-9999px">Your question</label>
       <input type="text" id="question" name="question" placeholder="Ask anything — the price depends on how much work the answer took…" maxlength="280" autocomplete="off" />
       <button class="send" type="submit" id="send">Ask</button>
+      <button class="send" type="button" id="burst" style="background:transparent;color:var(--text);border-color:var(--rule)">Ten at once</button>
     </div>
   </form>
 
@@ -120,6 +130,83 @@ const HTML = String.raw`<!doctype html>
     button.textContent = preset;
     button.addEventListener('click', () => ask(preset));
     $('presets').append(button);
+  }
+
+  const BURST = [
+    'What do anglers say about fishing?',
+    'Is a missed connection refunded?',
+    'How do the tide and the moon line up in Tokyo?',
+    'What happens to the jetfoil when the swell is high?',
+    'Should I book the ferry in September, given the swell and a refund?',
+    'How often do typhoons reach Tokyo?',
+    'When is the swell worst at Oshima?',
+    'How much later is each high tide?',
+    'When is a cancelled sailing refunded?',
+    'What is the capital of Mars?',
+  ];
+
+  $('burst').addEventListener('click', () => void burst());
+
+  async function burst() {
+    if (busy) return;
+    busy = true;
+    document.querySelectorAll('button, input').forEach((control) => { control.disabled = true; });
+
+    const turn = el('div', 'turn');
+    turn.append(bubble('ask', 'the agent', 'Ten questions, all at once — authorizing $0.50 for the lot.'));
+    const waiting = el('p', 'pending', 'judging ten answers in parallel…');
+    turn.append(waiting);
+    thread.append(turn);
+    turn.scrollIntoView({ block: 'end', behavior: 'smooth' });
+
+    try {
+      const body = JSON.stringify({ questions: BURST });
+      const headers = { 'content-type': 'application/json' };
+      const started = performance.now();
+      const unpaid = await fetch('/v1/research/batch', { method: 'POST', headers, body });
+      const challenge = await unpaid.json();
+      if (unpaid.status !== 402 || !challenge.quote) throw new Error(challenge?.error?.message || ('the desk answered ' + unpaid.status));
+      const response = await fetch('/v1/research/batch', { method: 'POST', headers: { ...headers, payment: 'test quote=' + challenge.quote }, body });
+      const result = await response.json();
+      const roundTrip = Math.round(performance.now() - started);
+      waiting.remove();
+
+      const card = el('div', 'burst');
+      card.append(el('h3', null, result.judged + ' questions, judged in parallel'));
+      const table = document.createElement('table');
+      for (const item of result.items) {
+        const row = document.createElement('tr');
+        const question = el('td', 'q', item.question);
+        const took = el('td', 'n', item.tookMs + ' ms');
+        const price = el('td', 'n', item.charged);
+        if (item.charged === '$0.00') price.style.color = 'var(--muted)';
+        row.append(question, took, price);
+        table.append(row);
+      }
+      card.append(table);
+      const sum = el('p', 'sum');
+      sum.append(el('b', null, result.charged));
+      sum.append(document.createTextNode(' settled of ' + result.authorized + ' authorized · all ten judged in ' + result.judgedInMs + ' ms (slowest ' + result.slowestMs + ' ms) · ' + roundTrip + ' ms round trip · judged by ' + result.judgedBy));
+      card.append(sum);
+      turn.append(card);
+
+      asked += result.judged;
+      authorized += money(result.authorized);
+      paid += money(result.charged);
+      $('t-auth').textContent = dollars(authorized);
+      $('t-paid').textContent = dollars(paid);
+      $('t-count').textContent = String(asked);
+      $('t-judge').textContent = result.judgedBy;
+    } catch (error) {
+      waiting.remove();
+      const failed = bubble('reply', 'the desk', String(error && error.message ? error.message : error));
+      failed.style.borderColor = 'var(--stop)';
+      turn.append(failed);
+    } finally {
+      busy = false;
+      document.querySelectorAll('button, input').forEach((control) => { control.disabled = false; });
+      turn.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    }
   }
 
   $('composer').addEventListener('submit', (event) => {
@@ -203,7 +290,7 @@ const HTML = String.raw`<!doctype html>
 
     const head = el('div', 'head');
     head.append(el('span', 'charged', pricing.charged));
-    head.append(el('span', 'tier', pricing.tier + ' · ' + pricing.judgedBy));
+    head.append(el('span', 'tier', pricing.judgedBy));
     node.append(head);
 
     const meter = el('div', 'meter');
@@ -215,6 +302,13 @@ const HTML = String.raw`<!doctype html>
     ends.append(el('span', null, 'authorized ' + pricing.authorized));
     meter.append(ends);
     node.append(meter);
+
+    if (Array.isArray(pricing.depth)) {
+      const spread = el('p', 'why');
+      spread.append(el('b', null, 'the price is an average: '));
+      spread.append(document.createTextNode(pricing.depth.map((level) => Math.round(level.probability * 100) + '% ' + level.level + ' (' + level.price + ')').join(', ')));
+      node.append(spread);
+    }
 
     const why = el('p', 'why');
     why.append(el('b', null, 'why: '));

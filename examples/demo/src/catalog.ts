@@ -1,6 +1,6 @@
 import { credits, payPerCall, upTo, type Gate, type Rail, type Tollstile } from 'tollstile';
 import { pricePerWord } from './handlers';
-import { RESEARCH_CAP } from './judge';
+import { BATCH_CAP, RESEARCH_CAP } from './judge';
 import { createToll, credits as balance, guests, type Env } from './toll';
 
 /**
@@ -19,6 +19,7 @@ export type Offer = {
 export type Offers = {
   readonly forecast: Offer;
   readonly research: Offer;
+  readonly batch: Offer;
   readonly translate: Offer;
   readonly summarize: Offer;
   readonly toolForecast: Offer;
@@ -40,6 +41,13 @@ export function offers(env: Env, toll: Tollstile<readonly Rail[]> = createToll(e
       description:
         'Authorize a ceiling; a judge reads the answer and settles $0.01, $0.02, $0.04 — or nothing, if the desk found nothing. The response says which tier, how confident, and who judged it.',
       gate: toll.price(upTo(RESEARCH_CAP), { resource: 'POST /v1/research' }),
+    },
+    batch: {
+      call: 'POST /v1/research/batch',
+      price: 'up to $0.50, settled at the sum of what each answer was worth',
+      description:
+        'Ten questions in one call, judged in parallel and settled as one charge. What a judge that answers in milliseconds is actually for: a burst from one agent, priced individually, paid once.',
+      gate: toll.price(upTo(BATCH_CAP), { resource: 'POST /v1/research/batch' }),
     },
     translate: {
       call: 'POST /v1/translate',
