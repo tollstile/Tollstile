@@ -68,9 +68,10 @@ export default tseslint.config(
     rules: { 'no-restricted-imports': 'off', 'no-console': 'off' },
   },
   {
-    // Example servers and agents are applications: they print to the terminal.
-    files: ['examples/*/src/**/*.ts', 'examples/*/scripts/**/*.ts'],
-    rules: { 'no-console': 'off' },
+    // Example servers and agents are applications: they print to the terminal. So are the
+    // verification harnesses under packages/*/scripts, which run on Node and report to a person.
+    files: ['examples/*/src/**/*.ts', 'examples/*/scripts/**/*.ts', 'packages/*/scripts/**/*.ts'],
+    rules: { 'no-console': 'off', 'no-restricted-imports': 'off' },
   },
   {
     files: ['packages/tollstile/src/core/**/*.ts'],

@@ -120,6 +120,9 @@ The authorization's `data` holds the payer's signed payload, because settlement 
 
 ### Verify live on Base Sepolia with the x402.org facilitator
 
+Five of the steps below are automated, so the run can be repeated and its record published rather than described: `pnpm --filter @tollstile/x402 verify-live -- --preflight` checks the wallets, the allowance, and the facilitator's advertised `upto` spender without signing anything, and dropping `--preflight` runs the payment, the replay, the failure-and-retry, the lost `/settle`, and the dropped `/settle` end to end. See the [runbook](https://github.com/tollstile/Tollstile/tree/main/packages/x402/scripts). The manual walkthrough stays here, because reading what each step does is how the automation is checked.
+
+
 1. **Wallets.** Create two test wallets: a receiver (`payTo`) and a payer. Fund the payer with Base Sepolia USDC from https://faucet.circle.com. For `exact`, the payer needs no ETH (the facilitator pays gas). For `upto`, the payer must approve Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`) for USDC once, which needs a little Base Sepolia ETH.
 2. **Facilitator address.** `curl https://x402.org/facilitator/supported` and copy `extra.facilitatorAddress` of the `upto` / `eip155:84532` entry (it was `0xd407e409E34E0b9afb99EcCeb609bDbcD5e7f1bf` on 2026-09-15).
 3. **Server.** Run the example above with `network: 'eip155:84532'`, your `payTo`, `denomination: 'USD'`, `rpcUrl: 'https://sepolia.base.org'` (or a provider URL), `upto: { facilitatorAddress }`, a Postgres or memory ledger, and `onEvent: console.log`.
