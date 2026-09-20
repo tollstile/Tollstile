@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,12 @@ import { HEIGHT, png, render, SCENE, WIDTH } from '../src/scene';
 /** The photo-reading paths need a file on disk; the drawn scene is one, written where any machine has room. */
 const photoPath = join(mkdtempSync(join(tmpdir(), 'tollstile-detection-')), 'scene.png');
 writeFileSync(photoPath, png(render(), WIDTH, HEIGHT));
+
+/**
+ * Reading a photograph is ffmpeg's job, and a machine without it can still run everything that
+ * decides money. Those tests say they were skipped rather than quietly passing.
+ */
+const hasFfmpeg = spawnSync('ffprobe', ['-version'], { stdio: 'ignore' }).status === 0;
 import { KEEP, modelVerifier, type Verifier } from '../src/verify';
 
 const ask = async (app: ReturnType<typeof createApp>, target = 'a solar panel') => {
@@ -108,7 +115,7 @@ describe('the model verifier', () => {
   });
 });
 
-describe('SAM as the proposer', () => {
+describe.skipIf(!hasFfmpeg)('SAM as the proposer', () => {
   it('turns centre-based fractions into pixel boxes, and keeps its score for the record only', async () => {
     const { segment } = await import('../src/sam');
     let sent: Record<string, unknown> = {};
@@ -131,7 +138,7 @@ describe('SAM as the proposer', () => {
   });
 });
 
-describe('the two-stage second opinion', () => {
+describe.skipIf(!hasFfmpeg)('the two-stage second opinion', () => {
   it('asks what the crop shows, then whether that is the concept, and bills on the second answer', async () => {
     const { secondOpinion } = await import('../src/second-opinion');
     const { load } = await import('../src/photo');
