@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// solc ships without usable types; the compile entry point is the only thing used.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+// solc ships without usable types; the compile entry point is the only thing used, and it is typed below.
 import solc from 'solc';
 import type { Hex } from 'viem';
 
