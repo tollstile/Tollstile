@@ -18,7 +18,7 @@ const layerImports = (forbidden) => ({
 
 export default tseslint.config(
   // scripts/ holds plain-JavaScript release tooling outside the TypeScript projects.
-  { ignores: ['web/**', '.claude/**', 'scripts/**', '**/dist/**', '**/node_modules/**', '**/*.config.*', '**/.next/**', '**/.wrangler/**', '**/next-env.d.ts'] },
+  { ignores: ['web/**', '.claude/**', 'scripts/**', 'research/**', '**/dist/**', '**/node_modules/**', '**/*.config.*', '**/.next/**', '**/.wrangler/**', '**/next-env.d.ts'] },
   ...tseslint.configs.strictTypeChecked,
   comments.recommended,
   {

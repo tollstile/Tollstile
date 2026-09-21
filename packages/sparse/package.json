@@ -1,0 +1,20 @@
+{
+  "name": "@tollstile/sparse",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Experimental: sparse (probabilistic) settlement as a Tollstile rail, with an in-memory facilitator implementing commit–reveal. Reference implementation for “When Not to Settle Probabilistically”. Not published.",
+  "keywords": ["tollstile", "sparse-settlement", "probabilistic-payments", "x402", "experimental"],
+  "homepage": "https://tollstile.com",
+  "repository": { "type": "git", "url": "git+https://github.com/tollstile/tollstile.git", "directory": "packages/sparse" },
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": { "tollstile": "workspace:^" },
+  "devDependencies": { "tollstile": "workspace:^" }
+}
