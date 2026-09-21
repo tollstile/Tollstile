@@ -11,7 +11,9 @@ What is here:
 - `selectRegime()` — the deployable two-threshold rule of the paper's §6.
 - `ticket.ts` — the four invariants as pure functions: `thresholdFor`, `digestOf`, `outcomeOf`, `commitmentOf`.
 
-What is not here: a Permit2 verifier contract, a network facilitator, or any on-chain transfer. The facilitator's "transfer" is a balance movement in memory; the signature is an HMAC-style stand-in for ecrecover; the digest stands in for an EIP-712 digest. The rail's contract with the runtime is what is being tested, not the chain.
+Also here: `contracts/SparseSettlementProxy.sol`, the on-chain verifier (a fork of `x402UptoPermit2Proxy`'s structure enforcing the invariants), and `pnpm --filter @tollstile/sparse gas`, which compiles it with solc and runs it in an in-process EVM against the real Permit2 bytecode from Base — a winning settlement is 72,829 gas for a repeat buyer and 89,917 for a one-shot buyer's first ticket, against 86,242 for a USDC EIP-3009 transfer on Base. The contract is unaudited and undeployed.
+
+What is not here: a network facilitator or any on-chain transfer. The facilitator's "transfer" is a balance movement in memory; the signature is an HMAC-style stand-in for ecrecover; the digest stands in for an EIP-712 digest. The rail's contract with the runtime is what is being tested, not the chain.
 
 ```ts
 import { createTollstile, memoryLedger, upTo } from 'tollstile';
