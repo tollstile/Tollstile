@@ -95,6 +95,10 @@ pnpm --filter @tollstile-examples/demo agent -- --budget '1 USD'
 
 Any payment protocol or provider can be added without touching core: write it with `createRail()`, test it against a fake provider, and prove it with `railConformance()`. Start from [`examples/custom-rail`](./examples/custom-rail) and the [Build a rail](https://tollstile.com/docs/rails/build-a-rail) guide. Published rails can be listed on [Community rails](https://tollstile.com/docs/rails/community).
 
+## Research
+
+[`research/`](./research) holds measurement scripts and paper drafts — currently one study of the x402 index and where probabilistic settlement would and would not pay — with a reference implementation in [`packages/sparse`](./packages/sparse). It is research, not product: private, unpublished and unsupported, kept in the repository so its numbers can be re-run.
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md): development setup, what reviews expect, and how rails are shipped — in your own app, as a community rail, or as an official `@tollstile/*` rail. Report vulnerabilities privately per [SECURITY.md](./SECURITY.md).

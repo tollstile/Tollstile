@@ -364,6 +364,12 @@ importers:
         specifier: workspace:^
         version: link:../tollstile
 
+  packages/sparse:
+    devDependencies:
+      tollstile:
+        specifier: workspace:^
+        version: link:../tollstile
+
   packages/sqlite:
     devDependencies:
       tollstile:
