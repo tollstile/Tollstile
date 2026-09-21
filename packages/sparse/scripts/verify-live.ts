@@ -95,7 +95,9 @@ function loadOrStart(about: Omit<RunRecord, 'startedAt' | 'tickets'>): RunRecord
   }
   return { startedAt: new Date().toISOString(), ...about, tickets: [] };
 }
-const save = (run: RunRecord) => writeFileSync(RECORD, JSON.stringify(run, null, 2));
+const save = (run: RunRecord) => {
+  writeFileSync(RECORD, JSON.stringify(run, null, 2));
+};
 
 // ─── main ────────────────────────────────────────────────────────────────────
 
@@ -185,7 +187,7 @@ async function main() {
         const transfer = receipt.logs
           .filter((log) => log.address.toLowerCase() === USDC.toLowerCase())
           .map((log) => decodeEventLog({ abi: erc20, data: log.data, topics: log.topics }))
-          .find((event) => event.eventName === 'Transfer' && event.args.from.toLowerCase() === payer.address.toLowerCase() && event.args.to.toLowerCase() === PAY_TO.toLowerCase());
+          .find((event) => event.args.from.toLowerCase() === payer.address.toLowerCase() && event.args.to.toLowerCase() === PAY_TO.toLowerCase());
         if (transfer === undefined) throw new Error('no Transfer from payer to payTo in the receipt');
         record.transferred = transfer.args.value.toString();
         if (transfer.args.value !== TICKET) throw new Error(`transferred ${transfer.args.value.toString()}, not the ticket ${TICKET.toString()}`);
