@@ -11,7 +11,8 @@ export const RECEIPT_META = 'sparse/receipt';
 /** Domain separator for the digest. Stands in for an EIP-712 domain in this off-chain reference. */
 export const DOMAIN = 'tollstile-sparse-v0';
 
-export const TWO_256 = 1n << 256n;
+/** The roll is the top 128 bits of the hash, and thresholds are scaled to 2^128 — the same arithmetic the verifier contract uses. */
+export const TWO_128 = 1n << 128n;
 
 /** What the buyer signs over, mirroring `SparseWitness` in the paper (§3). Amounts are decimal strings of micro-units. */
 export type Witness = {
@@ -36,16 +37,16 @@ export type Ticket = Witness & {
 
 export type Outcome = 'win' | 'lose';
 
-/** floor(p / T · 2^256). `p ≥ T` yields 2^256: every hash is below it, so settlement is deterministic. */
+/** floor(p / T · 2^128). `p ≥ T` yields 2^128: every roll is below it, so settlement is deterministic. */
 export function thresholdFor(priceMicros: bigint, ticketMicros: bigint): bigint {
   if (priceMicros <= 0n || ticketMicros <= 0n) return 0n;
-  if (priceMicros >= ticketMicros) return TWO_256;
-  return (priceMicros << 256n) / ticketMicros;
+  if (priceMicros >= ticketMicros) return TWO_128;
+  return (priceMicros << 128n) / ticketMicros;
 }
 
 /** Odds as a number in [0, 1], for receipts and events. */
 export function oddsOf(threshold: bigint): number {
-  return threshold >= TWO_256 ? 1 : Number((threshold * 1_000_000_000n + TWO_256 / 2n) / TWO_256) / 1_000_000_000;
+  return threshold >= TWO_128 ? 1 : Number((threshold * 1_000_000_000n + TWO_128 / 2n) / TWO_128) / 1_000_000_000;
 }
 
 const encoder = new TextEncoder();
@@ -76,9 +77,9 @@ export function digestOf(fields: DigestFields): Promise<string> {
   return sha256Hex(DOMAIN, canonical({ ...fields }));
 }
 
-/** H(d ‖ s) as a 256-bit integer, compared to the threshold. */
+/** The top 128 bits of H(d ‖ s), compared to the threshold. (The on-chain profile hashes with keccak256; this off-chain reference uses SHA-256.) */
 export async function outcomeOf(digest: string, secret: string, threshold: bigint): Promise<Outcome> {
-  const roll = BigInt(`0x${await sha256Hex(digest, secret)}`);
+  const roll = BigInt(`0x${await sha256Hex(digest, secret)}`) >> 128n;
   return roll < threshold ? 'win' : 'lose';
 }
 
