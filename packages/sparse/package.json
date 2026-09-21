@@ -32,7 +32,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "gas": "tsx scripts/gas-benchmark.ts"
+    "gas": "tsx scripts/gas-benchmark.ts",
+    "verify-live": "tsx scripts/verify-live.ts"
   },
   "peerDependencies": {
     "tollstile": "workspace:^"

@@ -29,3 +29,27 @@ const toll = createTollstile({
 ```
 
 Tests: `pnpm vitest run packages/sparse` — the rail conformance suite, plus the mechanism's own: expected vs realized over many tickets, odds enforcement, replay, the selective-abort retry rule, concurrent spend against one balance, and the selector against the paper's numbers.
+
+## Live on Base Sepolia
+
+`scripts/verify-live.ts` is the paper's §12.3: real tickets, real Permit2, a deployed `SparseSettlementProxy`, and a record of realized against expected on both sides plus the gas of every winner. Opt-in — no test reaches it — and it refuses to run on a mainnet. Keys are read once and never printed or written.
+
+**Before the first run.** Two keys and one address:
+
+1. `PAYER_KEY` — the buyer. Needs Base Sepolia **USDC** (a few dollars from [faucet.circle.com](https://faucet.circle.com), network *Base Sepolia*) and a **little ETH** for the one-time Permit2 approval (any Base Sepolia faucet, e.g. the Coinbase Developer Platform faucet; 0.001 ETH is plenty). The script performs the approval itself on the first run.
+2. `FACILITATOR_KEY` — deploys the verifier and submits every winning settlement. Needs **ETH only** (deployment ≈ 0.7M gas plus ≈ 90k per winner; 0.01 ETH covers hundreds of wins). Reuse a deployment by passing `PROXY=0x…`.
+3. `PAY_TO` — the merchant's address. Any address you control; winners' USDC lands here.
+
+Make the keys with any wallet, or `openssl rand -hex 32` prefixed with `0x`, and keep them in a shell file that is not committed (`.env*` is git-ignored). Never paste them into a chat or a ticket.
+
+```bash
+PAYER_KEY=0x… FACILITATOR_KEY=0x… PAY_TO=0x… pnpm --filter @tollstile/sparse verify-live -- --preflight
+```
+
+checks balances, the allowance and the chain without signing anything, and says what is missing. Then:
+
+```bash
+PAYER_KEY=0x… FACILITATOR_KEY=0x… PAY_TO=0x… pnpm --filter @tollstile/sparse verify-live -- --tickets 500
+```
+
+Defaults: `--price 0.001`, `--ticket 0.10` (one win in a hundred, so 500 tickets ≈ 5 wins ≈ $0.50), `--record sparse-live-<date>.json`. A run that stops keeps its tickets in the record and resumes from there. The record lists its fields by hand — outcome, transaction, block, gas, transferred amount — and never a key or a signature.
