@@ -1,0 +1,62 @@
+{
+  "measuredAt": "2026-09-21",
+  "evm": "ethereumjs, Cancun, chainId 8453, real Permit2 runtime bytecode from Base",
+  "rows": [
+    {
+      "scenario": "ERC-20 transfer (mock, warm sender, cold recipient)",
+      "gas": 51429,
+      "note": "plain transfer, for scale"
+    },
+    {
+      "scenario": "ERC-20 transfer (mock, steady state: warm sender, funded recipient)",
+      "gas": 34329,
+      "note": "compare with USDC transfer() on Base, median 40,271 (15 recent txs): the difference is USDC's own overhead (proxy, blacklist) that a mock lacks"
+    },
+    {
+      "scenario": "Permit2 approval (one-time, per buyer)",
+      "gas": 46403,
+      "note": "the onboarding transaction the EIP-3009 path never needs (§4, bound iv)"
+    },
+    {
+      "scenario": "sparse settle, winner — first ever (cold Permit2 nonce word, cold payee balance)",
+      "gas": 89905,
+      "note": "p = $0.01, T = $1, 1 in 100; found after 129 tickets"
+    },
+    {
+      "scenario": "sparse settle, winner — steady state (warm nonce word, warm payee)",
+      "gas": 72829,
+      "note": "the number to compare with EIP-3009"
+    },
+    {
+      "scenario": "sparse settle, winner — upTo route fulfilled at 1/10 of the signed price",
+      "gas": 72777,
+      "note": "signed p = T (deterministic), charged $0.10: odds fall to 1 in 10 at settle time; this ticket won at the lower odds"
+    },
+    {
+      "scenario": "sparse settle, loser — reverts NotAWinner",
+      "gas": 39186,
+      "note": "reverted as required; a facilitator never submits this, shown for completeness"
+    },
+    {
+      "scenario": "invariant checks: wrong caller, price above signed, wrong secret, inflated threshold",
+      "gas": 0,
+      "note": "all four reverted; the same ticket then settled normally"
+    },
+    {
+      "scenario": "sparse settle, winner — a one-shot buyer's first ticket (cold nonce word) to a funded merchant",
+      "gas": 89917,
+      "note": "the case the mechanism is for"
+    }
+  ],
+  "reference": {
+    "eip3009TransferWithAuthorizationBase": 86242,
+    "sampled": 12,
+    "sampledAt": "2026-09-21"
+  },
+  "usdcTransferBaseMedian": 40271,
+  "usdcOverheadOverMock": 5942,
+  "ratioSteadyToEip3009": 0.8444725307854641,
+  "ratioSteadyUsdcAdjusted": 0.913371675053918,
+  "ratioOneShotUsdcAdjusted": 1.1115117923981355,
+  "approvalToEip3009": 0.5380557037174463
+}

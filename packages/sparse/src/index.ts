@@ -18,7 +18,7 @@ export {
   RECEIPT_META,
   TICKET_HEADER,
   TICKET_META,
-  TWO_256,
+  TWO_128,
   commitmentOf,
   decodeTicket,
   digestOf,

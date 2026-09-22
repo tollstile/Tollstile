@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { upTo } from 'tollstile';
 import { httpContext } from 'tollstile/testing';
-import { oddsOf, outcomeOf, thresholdFor, TWO_256 } from '../src/index';
+import { oddsOf, outcomeOf, thresholdFor, TWO_128 } from '../src/index';
 import { encodeTicket, TICKET_HEADER } from '../src/ticket';
 import { call, challenge, pay, seeded, setup, URL_UNDER_TEST } from './helpers';
 
 describe('ticket arithmetic', () => {
   it('threshold is floor(p / T · 2^256), deterministic at p ≥ T, and odds read back correctly', () => {
-    expect(thresholdFor(10_000n, 1_000_000n)).toBe(TWO_256 / 100n);
+    expect(thresholdFor(10_000n, 1_000_000n)).toBe(TWO_128 / 100n);
     expect(oddsOf(thresholdFor(10_000n, 1_000_000n))).toBeCloseTo(0.01, 9);
-    expect(thresholdFor(1_000_000n, 1_000_000n)).toBe(TWO_256);
-    expect(thresholdFor(2_000_000n, 1_000_000n)).toBe(TWO_256);
-    expect(oddsOf(TWO_256)).toBe(1);
+    expect(thresholdFor(1_000_000n, 1_000_000n)).toBe(TWO_128);
+    expect(thresholdFor(2_000_000n, 1_000_000n)).toBe(TWO_128);
+    expect(oddsOf(TWO_128)).toBe(1);
     expect(thresholdFor(0n, 1_000_000n)).toBe(0n);
   });
 
@@ -19,7 +19,7 @@ describe('ticket arithmetic', () => {
     const threshold = thresholdFor(500_000n, 1_000_000n);
     const first = await outcomeOf('d', 's', threshold);
     for (let i = 0; i < 5; i += 1) expect(await outcomeOf('d', 's', threshold)).toBe(first);
-    expect(await outcomeOf('d', 's', TWO_256)).toBe('win');
+    expect(await outcomeOf('d', 's', TWO_128)).toBe('win');
     expect(await outcomeOf('d', 's', 0n)).toBe('lose');
   });
 });
@@ -28,7 +28,7 @@ describe('a paid call', () => {
   it('answers 402 with the witness fields, and a $1 ticket cannot cover a $2 route', async () => {
     const { toll } = setup();
     const accepts = await challenge(toll.price('$0.01'));
-    expect(accepts).toMatchObject({ ticket: '1000000', price: '10000', threshold: (TWO_256 / 100n).toString(), to: '0xmerchant', facilitator: '0xfacilitator' });
+    expect(accepts).toMatchObject({ ticket: '1000000', price: '10000', threshold: (TWO_128 / 100n).toString(), to: '0xmerchant', facilitator: '0xfacilitator' });
     expect(accepts.commitment).toMatch(/^[0-9a-f]{64}$/);
     expect(accepts.challengeId.length).toBeGreaterThan(0);
 
@@ -90,7 +90,7 @@ describe('invariants', () => {
     const wallet = facilitator.wallet('buyer', 10_000_000n);
     const gate = toll.price('$0.01');
     const accepts = await challenge(gate);
-    const inflated = await wallet.sign({ ...accepts, threshold: TWO_256.toString() });
+    const inflated = await wallet.sign({ ...accepts, threshold: TWO_128.toString() });
     const result = await call(gate, { ticket: inflated });
     expect(result).toMatchObject({ status: 402, body: { error: { code: 'proof_invalid', detail: 'threshold_mismatch' } } });
     expect(facilitator.transfers()).toBe(0);
@@ -182,7 +182,7 @@ describe('variable amounts', () => {
     const wallet = facilitator.wallet('buyer', 100_000_000n);
     const gate = toll.price(upTo('$1'));
     const accepts = await challenge(gate);
-    expect(accepts.threshold).toBe(TWO_256.toString());
+    expect(accepts.threshold).toBe(TWO_128.toString());
     const ticket = await wallet.sign(accepts);
     const entry = await gate.enter(httpContext(new Request(URL_UNDER_TEST, { headers: { [TICKET_HEADER]: encodeTicket(ticket) } }), { resource: URL_UNDER_TEST }));
     if (entry.kind !== 'admitted') throw new Error('expected admission');
