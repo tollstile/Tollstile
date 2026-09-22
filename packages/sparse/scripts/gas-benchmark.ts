@@ -15,42 +15,12 @@ import { createCustomCommon, Hardfork, Mainnet } from '@ethereumjs/common';
 import { createFeeMarket1559Tx } from '@ethereumjs/tx';
 import { createAccount, createAddressFromPrivateKey, createAddressFromString, hexToBytes, type Address } from '@ethereumjs/util';
 import { createVM, runTx, type VM } from '@ethereumjs/vm';
-// solc ships without usable types; the compile entry point is the only thing used.
- 
-import solc from 'solc';
-
-const compileJson = (solc as { compile: (input: string, options: { import: (path: string) => { contents: string } }) => string }).compile;
 import { encodeAbiParameters, encodeFunctionData, hashTypedData, keccak256, parseAbi, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { compileContracts, contractsDir, PERMIT2, sparseWitnessTypes, thresholdFor, TWO_128 } from './lib/compile';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const contracts = join(here, '..', 'contracts');
-const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 const CHAIN_ID = 8453;
-const TWO_128 = 1n << 128n;
-
-// ─── compile ─────────────────────────────────────────────────────────────────
-
-function compile(): Record<string, { abi: unknown[]; bytecode: Hex }> {
-  const sources: Record<string, { content: string }> = {};
-  for (const file of ['SparseSettlementProxy.sol', 'MockERC20.sol', 'vendor/ISignatureTransfer.sol']) {
-    sources[file] = { content: readFileSync(join(contracts, file), 'utf8') };
-  }
-  const input = {
-    language: 'Solidity',
-    sources,
-    settings: { optimizer: { enabled: true, runs: 200 }, evmVersion: 'cancun', outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } } },
-  };
-  const output = JSON.parse(compileJson(JSON.stringify(input), { import: (path: string) => ({ contents: readFileSync(join(contracts, path.replace(/^\.\//, '')), 'utf8') }) })) as {
-    errors?: { severity: string; formattedMessage: string }[];
-    contracts: Record<string, Record<string, { abi: unknown[]; evm: { bytecode: { object: string } } }>>;
-  };
-  const errors = (output.errors ?? []).filter((e) => e.severity === 'error');
-  if (errors.length > 0) throw new Error(errors.map((e) => e.formattedMessage).join('\n'));
-  const out: Record<string, { abi: unknown[]; bytecode: Hex }> = {};
-  for (const file of Object.values(output.contracts)) for (const [name, c] of Object.entries(file)) out[name] = { abi: c.abi, bytecode: `0x${c.evm.bytecode.object}` };
-  return out;
-}
 
 // ─── a tiny in-process chain ─────────────────────────────────────────────────
 
@@ -77,39 +47,15 @@ async function send(vm: VM, from: Actor, to: Address | null, data: Hex): Promise
 
 // ─── the benchmark ───────────────────────────────────────────────────────────
 
-const witnessTypes = {
-  PermitWitnessTransferFrom: [
-    { name: 'permitted', type: 'TokenPermissions' },
-    { name: 'spender', type: 'address' },
-    { name: 'nonce', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' },
-    { name: 'witness', type: 'SparseWitness' },
-  ],
-  TokenPermissions: [
-    { name: 'token', type: 'address' },
-    { name: 'amount', type: 'uint256' },
-  ],
-  SparseWitness: [
-    { name: 'to', type: 'address' },
-    { name: 'facilitator', type: 'address' },
-    { name: 'price', type: 'uint256' },
-    { name: 'threshold', type: 'uint256' },
-    { name: 'commitment', type: 'bytes32' },
-    { name: 'challengeId', type: 'bytes32' },
-    { name: 'validAfter', type: 'uint256' },
-  ],
-} as const;
-
+const witnessTypes = sparseWitnessTypes;
 const proxyAbi = parseAbi([
   'function settle((( address token, uint256 amount) permitted, uint256 nonce, uint256 deadline) permit, address owner, (address to, address facilitator, uint256 price, uint256 threshold, bytes32 commitment, bytes32 challengeId, uint256 validAfter) witness, bytes signature, bytes32 secret, uint256 price)',
 ]);
 const erc20Abi = parseAbi(['function mint(address to, uint256 amount)', 'function approve(address spender, uint256 amount) returns (bool)', 'function transfer(address to, uint256 amount) returns (bool)']);
 
-const thresholdFor = (price: bigint, ticket: bigint) => (price >= ticket ? TWO_128 : (price << 128n) / ticket);
-
 async function main() {
   const json = process.argv.includes('--json');
-  const built = compile();
+  const built = compileContracts();
   const common = createCustomCommon({ chainId: CHAIN_ID }, Mainnet, { hardfork: Hardfork.Cancun });
   const vm = await createVM({ common });
 
@@ -117,7 +63,7 @@ async function main() {
   for (const who of [deployer, buyer, facilitator]) await fund(vm, who);
 
   // Real Permit2 at its canonical address.
-  await vm.stateManager.putCode(createAddressFromString(PERMIT2), hexToBytes(readFileSync(join(contracts, 'vendor', 'Permit2.base.runtime.hex'), 'utf8').trim() as Hex));
+  await vm.stateManager.putCode(createAddressFromString(PERMIT2), hexToBytes(readFileSync(join(contractsDir, 'vendor', 'Permit2.base.runtime.hex'), 'utf8').trim() as Hex));
 
   const mock = built.MockERC20, sparseProxy = built.SparseSettlementProxy;
   if (mock === undefined || sparseProxy === undefined) throw new Error('compile produced no contracts');
