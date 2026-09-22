@@ -38,7 +38,7 @@ let seed=7; const rnd=()=> (seed=(seed*1103515245+12345)%2147483648)/2147483648;
 const counts={}; for (const r of os) { const k=`${r.n}|${r.p}`; counts[k]=(counts[k]||0)+1; }
 for (const [k,c] of Object.entries(counts)) { const [n,p]=k.split('|').map(Number); svg += `<circle cx="${lx(n)+(rnd()-0.5)*2.5}" cy="${ly(p)+(rnd()-0.5)*2.5}" r="${Math.min(6,1.4+Math.log10(c)*1.6)}" fill="#222" opacity="0.42"/>`; }
 svg += `<text x="${L}" y="22" font-size="13" font-weight="bold">Where a sparse ticket cuts settlements ≥ 10× at k = 25</text>`;
-svg += `<text x="${L}" y="38" font-size="11" fill="#555">${os.length.toLocaleString()} one-shot resources (≤ 2 calls per payer); dot area ∝ log count at that (n, p)</text>`;
+svg += `<text x="${L}" y="38" font-size="11" fill="#555">${os.length.toLocaleString()} low-recurrence resources (mean ≤ 2 calls per payer); dot area ∝ log count at that (n, p)</text>`;
 for (const [i,[lab,Tc,col]] of CAPS.entries()) svg += `<text x="${W-R}" y="${H-B-8-i*15}" text-anchor="end" font-size="11" fill="${col}">inside ${lab.split(' —')[0]}: ${os.filter(r=>r.n>=225&&r.p<=Tc/10).length} resources</text>`;
 svg += `</svg>`;
 writeFileSync('fig-region.svg', svg);
