@@ -1,6 +1,6 @@
 # Sparse settlement / regime selection — research scripts
 
-Companion to `paper-v0.8.md` (earlier drafts kept alongside). Not part of the published packages. The reference rail is `packages/sparse` (`pnpm vitest run packages/sparse`).
+Companion to `paper-v0.9.md` (earlier drafts kept alongside). Not part of the published packages. The reference rail is `packages/sparse` (`pnpm vitest run packages/sparse`).
 
 - `fetch-bazaar.mjs` — pulls the CDP Bazaar discovery index in full into `snapshots/bazaar-<date>.json` (`OUT=` to override).
 - All analysis scripts read `SNAPSHOT=<path>` (default `snapshots/bazaar-2026-09-20.json`).
