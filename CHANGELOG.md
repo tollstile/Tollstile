@@ -2,6 +2,12 @@
 
 All publishable packages (`tollstile`, `@tollstile/*`, `create-tollstile`) are released together at the same version. See [RELEASING.md](./RELEASING.md).
 
+## Unreleased
+
+### Added
+
+- `railConformance()` has a case for proofs that are not bound to what they were bought for: a proof bought for one resource must be refused at another resource with the same price, with no effect, and must still pay for its own resource afterwards. A rail whose proof is a public payment checked only for payee and amount — so that anyone who sees it can spend it, and any old payment can be redeemed — passed every earlier case; it fails this one. Skipped for reusable authorizations, which may pay for any resource the payer authorized.
+
 ## 0.1.2
 
 Fixes from an adversarial review of the security boundary, the wire formats, and the docs, and READMEs that read correctly on npm.
