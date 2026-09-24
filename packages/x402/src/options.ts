@@ -1,4 +1,5 @@
 import { TollstileError, type Money } from 'tollstile';
+import { isFacilitator, type Facilitator } from './facilitator';
 import { isAddress, KNOWN_NETWORKS, type X402Asset } from './networks';
 import type { Fetch } from './provider-fetch';
 
@@ -24,10 +25,12 @@ export type X402Options = {
   /** Defaults to USDC on Base and Base Sepolia. Required on other networks. */
   readonly asset?: X402Asset;
   /**
-   * The facilitator that verifies and settles. Defaults to https://x402.org/facilitator on Base
-   * Sepolia only; required everywhere else.
+   * The facilitator that verifies and settles: `{ url, headers }` for an x402 facilitator's HTTP
+   * API, or your own implementation of the `Facilitator` contract (a different provider API, or a
+   * choice among several). Defaults to https://x402.org/facilitator on Base Sepolia only; required
+   * everywhere else.
    */
-  readonly facilitator?: X402FacilitatorOptions;
+  readonly facilitator?: X402FacilitatorOptions | Facilitator;
   /**
    * JSON-RPC endpoint for `network`. Facilitators have no status endpoint and `/settle` is not
    * idempotent, so reconciliation reads authorization nonces and transfer logs from the chain.
@@ -55,7 +58,7 @@ export type Settings = {
   readonly asset: X402Asset;
   readonly payTo: string;
   readonly basis: Basis;
-  readonly facilitator: X402FacilitatorOptions;
+  readonly facilitator: X402FacilitatorOptions | Facilitator;
   readonly rpcUrl: string;
   readonly upto: { readonly facilitatorAddress: string } | null;
   readonly maxTimeoutSeconds: number;
@@ -89,10 +92,17 @@ export function resolveOptions(options: X402Options): Settings {
     options.facilitator ?? (known === undefined || known.facilitator === null ? undefined : { url: known.facilitator });
   if (facilitator === undefined) {
     throw invalid(
-      `network "${network}" needs an explicit facilitator: { url, headers }. The public x402.org facilitator is used by default only on Base Sepolia.`,
+      `network "${network}" needs an explicit facilitator: { url, headers } or a Facilitator implementation. The public x402.org facilitator is used by default only on Base Sepolia.`,
     );
   }
-  if (!URL.canParse(facilitator.url)) throw invalid('facilitator.url must be an absolute URL.');
+  if (!isFacilitator(facilitator)) {
+    if (typeof facilitator.url !== 'string' || !URL.canParse(facilitator.url)) {
+      throw invalid('facilitator must be { url, headers } with an absolute URL, or an object with verify() and settle().');
+    }
+    if (facilitator.headers !== undefined && typeof facilitator.headers !== 'function') {
+      throw invalid('facilitator.headers must be a function returning the headers for one request.');
+    }
+  }
 
   if (options.upto !== undefined && !isAddress(options.upto.facilitatorAddress)) {
     throw invalid(`upto.facilitatorAddress "${options.upto.facilitatorAddress}" is not an EVM address.`);

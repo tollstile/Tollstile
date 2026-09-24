@@ -1,7 +1,7 @@
 import { upTo, type JsonObject } from 'tollstile';
 import { mcpContext } from 'tollstile/testing';
 import { describe, expect, it } from 'vitest';
-import type { X402Data } from '../src/index';
+import { x402FacilitatorClient, type X402Data, type X402Facilitator, type X402FacilitatorRequest, type X402SettleResponse, type X402VerifyResponse } from '../src/index';
 import { FACILITATOR_URL, RPC_URL, USDC } from './fake-network';
 import { call, challenge, decodeHeader, FACILITATOR_ADDRESS, pay, PAY_TO, PAYER, PAYER_ID, setup, sign } from './helpers';
 
@@ -618,5 +618,79 @@ describe('configuration', () => {
       amount: '20000',
       basis: 'rate',
     });
+  });
+});
+
+describe('facilitator', () => {
+  const seen = () => ({ verify: [] as X402FacilitatorRequest[], settle: [] as X402FacilitatorRequest[] });
+
+  it('calls a supplied Facilitator with the server requirements and settles with its transaction', async () => {
+    // The implementation is chosen before the network exists, so it reaches the fake through a closure.
+    let http: X402Facilitator = { verify: () => Promise.reject(new Error('not wired')), settle: () => Promise.reject(new Error('not wired')) };
+    const calls = seen();
+    const facilitator: X402Facilitator = {
+      verify: (request, operation) => {
+        calls.verify.push(request);
+        return http.verify(request, operation);
+      },
+      settle: (request, operation) => {
+        calls.settle.push(request);
+        return http.settle(request, operation);
+      },
+    };
+    const context = setup({ facilitator });
+    http = x402FacilitatorClient({ url: FACILITATOR_URL }, context.network.fetch);
+
+    const { result } = await pay(context.toll.price('$0.05'), context.clock.now());
+
+    expect(result).toMatchObject({ status: 200, handlerRuns: 1, settlement: 'settled' });
+    expect(calls.verify).toHaveLength(1);
+    expect(calls.verify[0]?.paymentRequirements).toMatchObject({ scheme: 'exact', payTo: PAY_TO, amount: '50000' });
+    expect(calls.settle).toHaveLength(1);
+    expect(context.charges()).toEqual(['settled/completed']);
+    expect(context.network.calls.verify).toHaveLength(1);
+    expect(context.network.calls.settle).toHaveLength(1);
+  });
+
+  it('holds a supplied Facilitator to the contract: sanitized reasons, undecided is unavailable, no hash is unknown', async () => {
+    const valid = { isValid: true as const, payer: undefined };
+    const settled = { success: true as const, transaction: `0x${'cd'.repeat(32)}` };
+    const fixed = (verify: X402VerifyResponse, settle: X402SettleResponse): X402Facilitator => ({
+      verify: () => Promise.resolve(verify),
+      settle: () => Promise.resolve(settle),
+    });
+
+    const injected = setup({ facilitator: fixed({ isValid: false, invalidReason: '<script>alert(1)</script>' }, settled) });
+    const rejected = await pay(injected.toll.price('$0.05'), injected.clock.now());
+    expect(rejected.result).toMatchObject({ status: 402, handlerRuns: 0, body: { error: { code: 'proof_invalid', detail: 'verification_failed' } } });
+
+    const undecided = setup({ facilitator: fixed({ isValid: false, invalidReason: 'unexpected_verify_error' }, settled) });
+    const unavailable = await pay(undecided.toll.price('$0.05'), undecided.clock.now());
+    expect(unavailable.result).toMatchObject({ status: 503, handlerRuns: 0, body: { error: { code: 'payment_unavailable' } } });
+    expect(undecided.charges()).toHaveLength(0);
+
+    const hashless = setup({ facilitator: fixed(valid, { success: true, transaction: 'confirmed, trust me' }) });
+    await pay(hashless.toll.price('$0.05'), hashless.clock.now());
+    expect(hashless.charges()).toEqual(['unknown/completed']);
+    expect(hashless.errors()[0]).toMatchObject({ code: 'PROVIDER_TIMEOUT' });
+
+    const pending = setup({ facilitator: fixed(valid, { success: false, errorReason: 'settlement_pending' }) });
+    await pay(pending.toll.price('$0.05'), pending.clock.now());
+    expect(pending.charges()).toEqual(['unknown/completed']);
+
+    const failed = setup({ facilitator: fixed(valid, { success: false, errorReason: 'insufficient_funds' }) });
+    const result = await pay(failed.toll.price('$0.05'), failed.clock.now());
+    expect(result.result.settlement).toBe('rejected');
+    expect(failed.charges()).toEqual(['failed/completed']);
+  });
+
+  it('accepts a Facilitator where an explicit facilitator is required, and refuses a shape that is neither', async () => {
+    const { x402 } = await import('../src/index');
+    const base = { network: 'eip155:8453', payTo: PAY_TO, denomination: 'USD', rpcUrl: RPC_URL };
+    const custom: X402Facilitator = { verify: () => Promise.reject(new Error('unused')), settle: () => Promise.reject(new Error('unused')) };
+    expect(() => x402({ ...base, facilitator: custom })).not.toThrow();
+    expect(() => x402({ ...base, facilitator: {} as X402Facilitator })).toThrow(/facilitator must be/);
+    expect(() => x402({ ...base, facilitator: { url: 'not a url' } })).toThrow(/facilitator must be/);
+    expect(() => x402({ ...base, facilitator: { url: FACILITATOR_URL, headers: {} as never } })).toThrow(/facilitator\.headers/);
   });
 });
