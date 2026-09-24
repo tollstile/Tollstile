@@ -4,8 +4,6 @@
 
 \usepackage[margin=2.6cm,top=2.4cm,bottom=2.6cm]{geometry}
 \usepackage{fontspec}
-\usepackage{xeCJK}
-\setCJKmainfont{Hiragino Mincho ProN}
 \setmonofont[Scale=0.88]{Menlo}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{booktabs}
@@ -95,30 +93,6 @@ approval is 0.54 of one; with those ratios every resource inside the region clea
 if all its buyers are new, while three quarters of the sub-cent low-recurrence cell never does at any $\varphi$.
 Probabilistic settlement is one regime among several; a merchant runtime, not a protocol, is what has to know
 where its edges are; and we list the measurements that would move them.
-
-\subsection*{要旨}
-
-{\small
-HTTP 402 の商取引はセント未満で値付けされ、既定経路では 1 呼び出しにつき 1 オンチェーン送金で決済される。本稿は公開最大の
-x402 索引（14,964 エンドポイント、30 日で 487,261 件の報告呼び出し）を、価格だけでなく\textbf{支払者の再来性}で分割して
-計測する。そこで露わになるのは不整合である：\textbf{呼び出しの 47\% から 91\%}（幅は「call」の未公開な定義に由来する）
-\textbf{は反復する支払者関係から来ている}のに、その関係のための scheme——\code{batch-settlement}、Circle Gateway——を
-提示する資源は呼び出しの高々 4.8\% で、専ら提示する資源は無い。一方、支払者–資源ペアの少なくとも 61\% は証明可能に 1
-回限りの呼び出しであり（少なくとも 43\% は 1 回限りかつセント未満）、そのセルでは x402 の効率的経路はすべて買い手の事前
-入金から始まる。本稿はそのセルに欠けている regime——\emph{疎な決済}：券面額 $T$ の Permit2 承認を確率 $p/T$ で決済し、
-当落はファシリテータの commit--reveal でリクエスト内に確定、外れ券は誰にも決済できないことをオンチェーンで強制——を
-構成し、x402 に依存しない 4 つの不変条件に還元する。分散の拘束には小 $q$ 近似ではなく厳密な二項の式 $T \le p(1+n/k)$ を
-用いる。生き残る領域は\textbf{低再来資源 11,630 件のうち 25 件}で、この訂正でも変わらず、call の定義にも安定（22--25）。
-対象セルでは券面がもたらす削減の中央値は\textbf{わずか 4\%} であり、\textbf{サブセント資源 4,716 件のうち 3,648 件が、
-帰ってくる買い手の割合がいくつであっても呼び出しごとの決済に勝てない}——分散が券面を価格まで潰すからではなく（それは
-起きない）、削減幅を決済自身のガス割増より下に押し下げるからである。したがって有用な結果は選択器である。事後的に資源
-ごとに選ぶ oracle は索引全体の決済ガスが月 \dollar{86}、常に \code{exact} なら \dollar{975}——ただしこれはいかなる固定
-regime にも自明に勝つ下界である。一方、\textbf{配備可能な 2 閾値の規則を遡及評価すると \dollar{107}} で、288 通りに
-わたって oracle の 1.0--1.7 倍以内に収まる。この規則は \textbf{288 通り中 195} で最良の単一 regime に勝ち、負ける 93
-通りの四分の三は一箇所——預託が 6 か月以上生きる場合——に集中しており、それは runtime が選ぶ前に測るべき唯一のコスト・
-パラメータを教えている。確率的決済は複数ある regime の一つであり、その境界を知るべきなのはプロトコルではなく売り手側
-ランタイムである。
-}
 
 \vspace{0.4em}
 \noindent\rule{\textwidth}{0.4pt}
