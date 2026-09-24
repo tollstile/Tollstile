@@ -52,11 +52,12 @@ export function selectRegime(input: RegimeInput): RegimeChoice {
   if (input.calls / payers > repeatAbove) return { regime: 'channel', reason: `mean recurrence ${(input.calls / payers).toFixed(1)} calls per payer exceeds ${String(repeatAbove)}` };
   if (payers < minPayers) return { regime: 'deterministic', reason: `${String(payers)} distinct payers is below ${String(minPayers)}` };
 
-  // T = min(p·n/k, T_client); a ticket must clear the price by 10× to be worth the variance.
-  const byVariance = (price.micros * BigInt(input.calls)) / BigInt(k);
+  // Exact binomial bound: CV = sqrt((T/p - 1)/n) <= 1/sqrt(k)  <=>  T <= p(1 + n/k).
+  // (The small-q approximation T <= p·n/k drops the leading term and is wrong at low volume.)
+  const byVariance = price.micros + (price.micros * BigInt(input.calls)) / BigInt(k);
   const bound = byVariance < cap.micros ? byVariance : cap.micros;
   const ticket = denominate(bound);
-  if (ticket < price.micros * 10n) return { regime: 'deterministic', reason: `no ticket reaches 10× the price within k = ${String(k)} and cap ${cap.micros.toString()}µ` };
+  if (ticket < price.micros * 10n) return { regime: 'deterministic', reason: `no ticket reaches 10× the price within k = ${String(k)} (n = ${String(input.calls)} allows ${String(byVariance / price.micros)}×) and cap ${cap.micros.toString()}µ` };
 
   return {
     regime: 'sparse',
