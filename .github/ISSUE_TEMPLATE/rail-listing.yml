@@ -2,6 +2,10 @@ name: List a community rail
 description: Add a rail you publish to the Community rails page.
 labels: [rail, community]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Listing is not an endorsement; it means every item below is met. An issue that misses an item is closed with a pointer to the checklist — fix it and open a new one.
   - type: input
     id: package
     attributes:
@@ -13,12 +17,23 @@ body:
     id: repository
     attributes:
       label: Source repository
+      description: Must match the `repository` field of the published package.
     validations:
       required: true
   - type: input
     id: protocol
     attributes:
       label: Protocol or provider, with a link to its specification or API reference
+    validations:
+      required: true
+  - type: dropdown
+    id: authorship
+    attributes:
+      label: Who wrote it
+      options:
+        - A person
+        - An automated agent, reviewed by a person before publishing
+        - An automated agent, not reviewed by a person
     validations:
       required: true
   - type: textarea
@@ -31,8 +46,8 @@ body:
   - type: textarea
     id: verification
     attributes:
-      label: Verification status
-      description: What was run against the provider's sandbox or testnet, and what was not.
+      label: Sandbox or testnet run
+      description: Paste the output of one run against the provider's sandbox or testnet — a payment, a replay, a handler failure — and say what was not covered. A run against your own fake provider does not count.
     validations:
       required: true
   - type: checkboxes
@@ -42,7 +57,9 @@ body:
       options:
         - label: The package declares `tollstile` as a peer dependency and has the `tollstile-rail` keyword
           required: true
-        - label: The README states capabilities, flows, stored data, retry behavior, and verification status
+        - label: The package's `repository` field points at the source repository above, and the published tarball is built from it
+          required: true
+        - label: The README states capabilities, flows, stored data, retry behavior, verification status, and — if an agent wrote it — says so
           required: true
         - label: No secrets, tokens, or payer evidence appear in errors, events, receipts, or logs
           required: true
