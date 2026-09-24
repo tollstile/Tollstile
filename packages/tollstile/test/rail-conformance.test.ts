@@ -6,7 +6,7 @@ import { fakeClock, railConformance, type RailHarness } from '../src/testing/ind
 type Variant = TestRailOptions & {
   readonly flows?: Rail['capabilities']['flows'];
   /** Breaks the rail on purpose, to prove the kit notices. */
-  readonly broken?: 'settles-every-call';
+  readonly broken?: 'settles-every-call' | 'ignores-the-quote';
 };
 
 function harness(options: Variant = {}): () => RailHarness {
@@ -17,6 +17,14 @@ function harness(options: Variant = {}): () => RailHarness {
     const rail: Rail = {
       ...test,
       capabilities: { ...test.capabilities, flows: options.flows ?? test.capabilities.flows },
+      // Like a rail whose proof is a public payment with no memo: it checks only the amount and the payee,
+      // so any payment of the right size pays for any resource at that price.
+      verify(context, terms, operation) {
+        if (options.broken !== 'ignores-the-quote' || context.request === null) return test.verify(context, terms, operation);
+        const headers = new Headers(context.request.headers);
+        headers.set('payment', (headers.get('payment') ?? '').replace(/\squote=\S*/, ''));
+        return test.verify({ ...context, request: new Request(context.request.url, { headers }) }, terms, operation);
+      },
       async settle(authorization, charge, operation) {
         const next = fault;
         fault = undefined;
@@ -86,5 +94,12 @@ describe('rail conformance catches broken rails', () => {
         'a lost settlement response is resolved by lookup, never guessed',
       ]),
     );
+  });
+
+  it('a rail that accepts any payment of the right size, whatever it was bought for', async () => {
+    // Exactly one case catches it: before that case existed, this rail passed the kit.
+    expect(await failures(harness({ broken: 'ignores-the-quote' }))).toEqual([
+      'a proof bought for one resource cannot pay for another, and still pays for its own',
+    ]);
   });
 });

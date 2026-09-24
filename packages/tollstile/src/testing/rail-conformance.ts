@@ -34,6 +34,9 @@ export type ConformanceCase = {
 
 const URL_UNDER_TEST = 'http://localhost/conformance';
 const RESOURCE = 'GET /conformance';
+// A second priced resource at the same price, for proofs presented where they were not bought.
+const OTHER_URL = 'http://localhost/conformance/other';
+const OTHER_RESOURCE = 'GET /conformance/other';
 
 /**
  * The rail contract from SPEC.md, as cases a rail's own test suite runs against its fake provider.
@@ -104,6 +107,28 @@ export function railConformance(createHarness: () => RailHarness): readonly Conf
         const replay = await run.enter(paying.clone());
         check(replay.kind === 'denied', 'a replayed proof must be denied');
         check((await harness.settlements()) === 1, 'a replay must not settle again');
+      },
+    },
+    {
+      // A proof that is not bound to what it was bought for can be spent by anyone who sees it: a
+      // public payment presented by a bystander, or an old one never presented at all. The second
+      // half matters as much as the first: refusing the stranger must not lock out the payer.
+      name: `${rail.name}: a proof bought for one resource cannot pay for another, and still pays for its own`,
+      skip: single ? undefined : 'reusable authorizations may pay for any resource the payer authorized',
+      async run() {
+        const harness = createHarness();
+        const run = setup(harness);
+        const { denial, offer } = await run.challenge();
+        const paying = await harness.pay({ denial, offer, url: URL_UNDER_TEST });
+        const before = await harness.settlements();
+
+        const elsewhere = await run.enterOther(new Request(OTHER_URL, { headers: paying.headers }));
+        check(elsewhere.kind === 'denied', 'a proof bought for one resource must not be admitted at another resource with the same price');
+        check((await harness.settlements()) === before, 'a proof presented at the wrong resource must have no effect');
+
+        const own = await run.enter(paying.clone());
+        check(own.kind === 'admitted', 'the proof must still pay for the resource it was bought for after being refused elsewhere');
+        if (own.kind === 'admitted') await own.pass.complete('succeeded');
       },
     },
     {
@@ -233,10 +258,12 @@ function setup(harness: RailHarness) {
     onEvent: (event) => events.push(event),
   });
   const gate = toll.price(harness.price ?? '$1', { resource: RESOURCE });
+  const other = toll.price(harness.price ?? '$1', { resource: OTHER_RESOURCE });
   const enter = (request: Request): Promise<Entry<readonly Rail[]>> => gate.enter(httpContext(request, { resource: RESOURCE }));
 
   return {
     enter,
+    enterOther: (request: Request): Promise<Entry<readonly Rail[]>> => other.enter(httpContext(request, { resource: OTHER_RESOURCE })),
     async challenge() {
       const entry = await enter(new Request(URL_UNDER_TEST));
       if (entry.kind !== 'denied') throw new Error('Conformance: an unpaid request was admitted.');
