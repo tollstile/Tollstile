@@ -9,7 +9,7 @@ import {
   type Rail,
   type Verification,
 } from 'tollstile';
-import { facilitatorClient } from './facilitator';
+import { resolveFacilitator } from './facilitator';
 import { jsonRpcChain } from './json-rpc';
 import { sameAddress, UPTO_PROXY_ADDRESS } from './networks';
 import { resolveOptions, type Settings, type X402Options } from './options';
@@ -61,7 +61,7 @@ type Invalid = Extract<Verification, { status: 'invalid' }>;
  */
 export function x402(options: X402Options): X402Rail {
   const settings = resolveOptions(options);
-  const facilitator = facilitatorClient(settings.facilitator, settings.fetch);
+  const facilitator = resolveFacilitator(settings.facilitator, settings.fetch);
   const chain = jsonRpcChain(settings.rpcUrl, settings.fetch);
   const { asset, network } = settings;
 

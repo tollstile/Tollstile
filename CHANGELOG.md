@@ -6,6 +6,8 @@ All publishable packages (`tollstile`, `@tollstile/*`, `create-tollstile`) are r
 
 ### Added
 
+- `@tollstile/x402`: `facilitator` accepts an implementation as well as a URL. Pass `{ verify, settle }` (type `X402Facilitator`) for a provider whose API is not the x402 HTTP shape, or to choose among several facilitators; `{ url, headers }` works as before. The rail holds every implementation to the same contract on the way back — reasons sanitized to `[a-z0-9_]`, `unexpected_verify_error` is a provider error, a success without a `0x` transaction hash and `settlement_pending` are unknown — so a custom facilitator cannot weaken what reaches the ledger or a 402 body. The built-in HTTP client is exported as `x402FacilitatorClient`, with `X402FacilitatorRequest`, `X402VerifyResponse` and `X402SettleResponse`.
+
 - `railConformance()` has a case for proofs that are not bound to what they were bought for: a proof bought for one resource must be refused at another resource with the same price, with no effect, and must still pay for its own resource afterwards. A rail whose proof is a public payment checked only for payee and amount — so that anyone who sees it can spend it, and any old payment can be redeemed — passed every earlier case; it fails this one. Skipped for reusable authorizations, which may pay for any resource the payer authorized.
 
 ## 0.1.2

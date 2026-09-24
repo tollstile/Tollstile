@@ -42,9 +42,11 @@ Publish it yourself so others can use it.
 - Name it `tollstile-rail-<name>` or `@<scope>/tollstile-rail-<name>`, with the `tollstile-rail` keyword.
 - Declare `tollstile` as a peer dependency.
 - Run `railConformance()` in your tests, and state in your README which cases pass and why any are skipped.
-- State what was verified against the provider's sandbox or testnet, and what was not.
+- Run it once against the provider's sandbox or testnet — a payment, a replay, a handler failure — and include the output. A run against your own fake provider is a test, not a verification.
+- Point the package's `repository` field at the source you submit, and build the published tarball from it. npm and source must agree.
+- If an automated agent wrote the rail, say so in the README and in the listing. Disclosure is welcome; finding out later is not.
 
-To be listed on [Community rails](https://tollstile.com/docs/rails/community), open a [rail listing issue](https://github.com/tollstile/tollstile/issues/new?template=rail-listing.yml). Listing is not an endorsement; it means the checklist above is met.
+To be listed on [Community rails](https://tollstile.com/docs/rails/community), open a [rail listing issue](https://github.com/tollstile/tollstile/issues/new?template=rail-listing.yml). Listing is not an endorsement; it means the checklist above is met. A listing issue that misses any item is closed with a pointer to this list; fix it and open a new one.
 
 ### 3. As an official `@tollstile/*` rail
 

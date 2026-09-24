@@ -18,6 +18,26 @@ export type SettleResponse =
   | { readonly success: true; readonly transaction: string }
   | { readonly success: false; readonly errorReason: string };
 
+/**
+ * What the rail needs from a facilitator: a verdict on a payment and a settlement of it. The
+ * built-in implementation posts to an x402 facilitator's `/verify` and `/settle`; an operator may
+ * pass their own — a client for a provider with a different API, or something that chooses among
+ * several — as `facilitator` on `x402()`.
+ *
+ * The contract, which the rail enforces on every implementation:
+ *
+ * - `verify` answers `isValid: false` only when the facilitator decided the payment is bad. When
+ *   it could not decide (unreachable, timed out, `unexpected_verify_error`), throw a
+ *   `TollstileError` with `PROVIDER_UNAVAILABLE` or `PROVIDER_TIMEOUT`; core then answers 503 and
+ *   the handler does not run.
+ * - `settle` answers `success: false` only when no transfer was and will be broadcast. When a
+ *   transfer may have been broadcast and its outcome is not known, throw `PROVIDER_TIMEOUT`; core
+ *   records the charge as unknown and reconciliation resolves it from the chain. Never call the
+ *   provider's settle twice for one payment on your own: `/settle` is not idempotent.
+ * - Reasons are `[a-z0-9_]{1,80}`; anything else is replaced before it reaches a 402 body.
+ *   `transaction` is a `0x` hash of 32 bytes; a success without one is treated as unknown.
+ * - Honour `operation.signal`.
+ */
 export type Facilitator = {
   verify(request: FacilitatorRequest, operation: Operation): Promise<VerifyResponse>;
   settle(request: FacilitatorRequest, operation: Operation): Promise<SettleResponse>;
@@ -33,7 +53,20 @@ const TRANSACTION = /^0x[0-9a-fA-F]{64}$/;
 const UNEXPECTED_VERIFY = 'unexpected_verify_error';
 const AMBIGUOUS_SETTLE = new Set(['settlement_pending', 'unexpected_settle_error']);
 
-export function facilitatorClient(options: X402FacilitatorOptions, fetcher: Fetch): Facilitator {
+/** A facilitator as configured: a URL to post to, or an implementation of the contract. */
+export function isFacilitator(value: unknown): value is Facilitator {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<Record<keyof Facilitator, unknown>>;
+  return typeof candidate.verify === 'function' && typeof candidate.settle === 'function';
+}
+
+/** The facilitator the rail calls, with the contract enforced whichever way it was configured. */
+export function resolveFacilitator(configured: X402FacilitatorOptions | Facilitator, fetcher: Fetch): Facilitator {
+  return isFacilitator(configured) ? guarded(configured) : facilitatorClient(configured, fetcher);
+}
+
+/** Posts to an x402 facilitator's `/verify` and `/settle`, and reads their answers by the x402 V2 shapes. */
+export function facilitatorClient(options: X402FacilitatorOptions, fetcher: Fetch = (input, init) => fetch(input, init)): Facilitator {
   const base = options.url.replace(/\/+$/, '');
 
   const post = async (path: 'verify' | 'settle', request: FacilitatorRequest, operation: Operation) =>
@@ -45,7 +78,7 @@ export function facilitatorClient(options: X402FacilitatorOptions, fetcher: Fetc
       label: `${LABEL} /${path}`,
     });
 
-  return {
+  return guarded({
     async verify(request, operation) {
       // Facilitators report rejections both as 200 and as non-2xx statuses with the same body.
       const { status, body } = await post('verify', request, operation);
@@ -53,12 +86,7 @@ export function facilitatorClient(options: X402FacilitatorOptions, fetcher: Fetc
         throw new TollstileError('PROVIDER_UNAVAILABLE', `${LABEL} /verify answered HTTP ${String(status)} without a VerifyResponse.`);
       }
       if (body.isValid) return { isValid: true, payer: textField(body, 'payer') };
-
-      const invalidReason = reason(textField(body, 'invalidReason'), 'verification_failed');
-      if (invalidReason === UNEXPECTED_VERIFY) {
-        throw new TollstileError('PROVIDER_UNAVAILABLE', `${LABEL} /verify reported ${UNEXPECTED_VERIFY}.`);
-      }
-      return { isValid: false, invalidReason };
+      return { isValid: false, invalidReason: textField(body, 'invalidReason') ?? '' };
     },
 
     async settle(request, operation) {
@@ -69,20 +97,43 @@ export function facilitatorClient(options: X402FacilitatorOptions, fetcher: Fetc
           `${LABEL} /settle answered HTTP ${String(status)} without a SettleResponse, so whether it broadcast a transfer is unknown.`,
         );
       }
+      if (!body.success) return { success: false, errorReason: textField(body, 'errorReason') ?? '' };
+      return { success: true, transaction: textField(body, 'transaction') ?? '' };
+    },
+  });
+}
 
-      if (!body.success) {
-        const errorReason = reason(textField(body, 'errorReason'), 'settlement_failed');
+/**
+ * The contract above, applied to any implementation: reasons are sanitized, "could not decide"
+ * becomes a provider error, and a success without a transaction hash is unknown, not settled.
+ */
+function guarded(facilitator: Facilitator): Facilitator {
+  return {
+    async verify(request, operation) {
+      const verdict = await facilitator.verify(request, operation);
+      if (verdict.isValid) return { isValid: true, payer: typeof verdict.payer === 'string' ? verdict.payer : undefined };
+
+      const invalidReason = reason(verdict.invalidReason, 'verification_failed');
+      if (invalidReason === UNEXPECTED_VERIFY) {
+        throw new TollstileError('PROVIDER_UNAVAILABLE', `${LABEL} /verify reported ${UNEXPECTED_VERIFY}.`);
+      }
+      return { isValid: false, invalidReason };
+    },
+
+    async settle(request, operation) {
+      const response = await facilitator.settle(request, operation);
+      if (!response.success) {
+        const errorReason = reason(response.errorReason, 'settlement_failed');
         if (AMBIGUOUS_SETTLE.has(errorReason)) {
           throw new TollstileError('PROVIDER_TIMEOUT', `${LABEL} /settle reported ${errorReason}; the transfer may still confirm on chain.`);
         }
         return { success: false, errorReason };
       }
 
-      const transaction = textField(body, 'transaction');
-      if (transaction === undefined || !TRANSACTION.test(transaction)) {
+      if (typeof response.transaction !== 'string' || !TRANSACTION.test(response.transaction)) {
         throw new TollstileError('PROVIDER_TIMEOUT', `${LABEL} /settle reported success without a transaction hash.`);
       }
-      return { success: true, transaction };
+      return { success: true, transaction: response.transaction };
     },
   };
 }
@@ -91,6 +142,6 @@ function ok(status: number): boolean {
   return status >= 200 && status < 300;
 }
 
-function reason(value: string | undefined, fallback: string): string {
-  return value !== undefined && REASON.test(value) ? value : fallback;
+function reason(value: unknown, fallback: string): string {
+  return typeof value === 'string' && REASON.test(value) ? value : fallback;
 }
